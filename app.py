@@ -16,7 +16,7 @@ from urllib.parse import urlparse, parse_qs
 import vrptw_4pass_solver as solver
 
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Обезличивание 2")
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_dataset")
 
 
 def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float, float], str]:
