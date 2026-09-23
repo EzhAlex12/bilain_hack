@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>билайн бизнес | Планирование маршрутов инженеров (OpenStreetMap)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --beeline-yellow: #FFCC00;
+      --beeline-black: #1A1A1A;
+      --beeline-dark: #242424;
+      --beeline-gray: #555555;
+      --beeline-light-gray: #F2F3F5;
+      --beeline-border: #DCDCDC;
+      --gis-green: #2E7D32;
+      --status-accident: #E53935;
+      --status-connect: #43A047;
+      --status-repair: #FB8C00;
+      --status-order: #8E24AA;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--beeline-light-gray); color: var(--beeline-black); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    
+    /* ШАПКА */
+    header {
+      background: var(--beeline-black);
+      color: #fff;
+      padding: 8px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid var(--beeline-yellow);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+      gap: 16px;
+    }
+    .header-logo { display: flex; align-items: center; gap: 10px; min-width: 280px; }
+    .logo-stripe {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: repeating-linear-gradient(45deg, var(--beeline-yellow), var(--beeline-yellow) 4px, var(--beeline-black) 4px, var(--beeline-black) 8px);
+    }
+    .header-title h1 { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .badge-osm { background: #0070BA; color: #FFF; font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 800; }
+    .header-title p { font-size: 11px; color: #AAA; }
+    
+    /* ВКЛАДКИ ЗАГРУЖЕННЫХ CSV */
+    .tabs-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      overflow-x: auto;
+      padding: 2px 4px;
+    }
+    .tabs-container::-webkit-scrollbar { height: 4px; }
+    .tabs-container::-webkit-scrollbar-thumb { background: #444; border-radius: 2px; }
+    
+    .tab-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #2D2D2D;
+      color: #CCC;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      border: 1px solid #404040;
+      transition: all 0.2s;
+    }
+    .tab-item:hover { background: #383838; color: #FFF; }
+    .tab-item.active {
+      background: var(--beeline-yellow);
+      color: var(--beeline-black);
+      border-color: var(--beeline-yellow);
+      font-weight: 700;
+    }
+    .tab-icon { font-size: 13px; }
+    .tab-close {
+      font-size: 14px;
+      line-height: 12px;
+      color: inherit;
+      opacity: 0.6;
+      border-radius: 50%;
+      padding: 1px 3px;
+      transition: opacity 0.2s;
+    }
+    .tab-close:hover { opacity: 1; background: rgba(0,0,0,0.15); }
+    
+    /* КНОПКА ЗАГРУЗКИ */
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+    .btn-download {
+      background: #FFF; border: 1px solid var(--beeline-border); color: var(--beeline-black);
+      padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px; transition: all 0.2s; white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .btn-download:hover { background: #F5F5F5; border-color: #999; transform: translateY(-1px); }
+    .btn-upload {
+      background: var(--beeline-yellow);
+      border: none;
+      color: var(--beeline-black);
+      padding: 7px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .btn-upload:hover { background: #FFD633; transform: translateY(-1px); }
+    
+    /* ОСНОВНОЙ КОНТЕЙНЕР */
+    .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+    
+    /* ПУСТОЕ СОСТОЯНИЕ (ЕСЛИ ВСЕ ВКЛАДКИ ЗАКРЫТЫ) */
+    .empty-state {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: #FAFAFA; display: none; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 400; gap: 16px;
+    }
+    .empty-state.visible { display: flex; }
+    .empty-icon { font-size: 54px; }
+    .empty-title { font-size: 20px; font-weight: 700; color: #333; }
+    .empty-desc { font-size: 14px; color: #777; max-width: 420px; text-align: center; line-height: 1.5; }
+    
+    /* БОКОВАЯ ПАНЕЛЬ */
+    .sidebar {
+      width: 480px; min-width: 420px; background: #FFF;
+      display: flex; flex-direction: column; border-right: 1px solid var(--beeline-border);
+      box-shadow: 2px 0 10px rgba(0,0,0,0.05); z-index: 500;
+    }
+    
+    /* KPI БЛОК */
+    .kpi-section {
+      padding: 14px 16px; background: #FAF9F6; border-bottom: 1px solid var(--beeline-border);
+    }
+    .kpi-title {
+      font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--beeline-gray);
+      margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .kpi-card {
+      background: #FFF; border: 1px solid var(--beeline-border); border-radius: 8px; padding: 10px 6px; text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .kpi-val { font-size: 17px; font-weight: 800; color: var(--beeline-black); }
+    .kpi-lbl { font-size: 10px; color: var(--beeline-gray); margin-top: 2px; }
+    .kpi-badge {
+      display: inline-block; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-top: 4px;
+    }
+    .badge-green { background: #E8F5E9; color: #0070BA; }
+    .badge-yellow { background: #FFF9C4; color: #F57F17; }
+    
+        /* ПАНЕЛЬ УПРАВЛЕНИЯ ИНЦИДЕНТАМИ */
+    .events-toolbar {
+      padding: 12px 16px; background: #FFFDF5; border-bottom: 1px solid #FFE082;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .events-header { display: flex; justify-content: space-between; align-items: center; }
+    .events-title { font-size: 12px; font-weight: 700; color: #D84315; display: flex; align-items: center; gap: 6px; }
+    .btn-reset-plan {
+      background: #FFF; border: 1px solid #FFCA28; color: #E65100; padding: 2px 8px;
+      font-size: 11px; font-weight: 700; border-radius: 4px; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-reset-plan:hover { background: #FFE082; }
+    
+    .incident-tabs { display: flex; gap: 4px; background: #F1EFE6; padding: 2px; border-radius: 6px; }
+    .incident-tab-btn {
+      flex: 1; border: none; background: transparent; padding: 6px 4px; font-size: 11px;
+      font-weight: 600; color: #555; border-radius: 4px; cursor: pointer; transition: all 0.2s; text-align: center;
+    }
+    .incident-tab-btn:hover { background: rgba(0,0,0,0.05); color: #000; }
+    .incident-tab-btn.active {
+      background: #FFF; color: #B71C1C; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .incident-panel { display: none; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .incident-panel.active { display: flex; }
+    .incident-label { font-size: 11px; font-weight: 600; color: #444; }
+    .incident-select, .incident-input {
+      width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #D0D0D0; border-radius: 4px;
+      background: #FFF; color: #222; outline: none;
+    }
+    .incident-select:focus, .incident-input:focus { border-color: #FFA000; }
+    .btn-incident-apply {
+      padding: 7px 10px; font-size: 11px; font-weight: 700; border-radius: 5px; border: none;
+      cursor: pointer; transition: all 0.2s; color: #FFF; margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-incident-apply.red { background: #D32F2F; }
+    .btn-incident-apply.red:hover { background: #B71C1C; }
+    .btn-incident-apply.orange { background: #E65100; }
+    .btn-incident-apply.orange:hover { background: #BF360C; }
+    .btn-incident-apply.dark-red { background: #C2185B; }
+    .btn-incident-apply.dark-red:hover { background: #880E4F; }
+
+    
+    /* СВОДКА И РАСПИСАНИЕ */
+    .schedule-header {
+      padding: 10px 16px; border-bottom: 1px solid var(--beeline-border); display: flex; justify-content: space-between; align-items: center;
+    }
+    .schedule-header h3 { font-size: 13px; font-weight: 700; }
+    .filter-select {
+      padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--beeline-border); background: #FFF;
+    }
+    
+    .schedule-content { flex: 1; overflow-y: auto; padding: 12px 16px; }
+    
+    .engineer-card {
+      border: 1px solid var(--beeline-border); border-radius: 8px; margin-bottom: 10px; background: #FFF;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03); transition: all 0.2s; overflow: hidden;
+    }
+    .engineer-card:hover { border-color: #BDBDBD; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    .eng-header {
+      padding: 10px 14px; background: #FAFAFA; display: flex; justify-content: space-between; align-items: center;
+      cursor: pointer; user-select: none; border-left: 4px solid #9E9E9E;
+    }
+    .eng-info { display: flex; align-items: center; gap: 8px; }
+    .eng-color { width: 12px; height: 12px; border-radius: 50%; }
+    .eng-name { font-weight: 700; font-size: 13px; }
+    .eng-role { font-size: 11px; color: var(--beeline-gray); }
+    .eng-stats { font-size: 11px; font-weight: 600; color: #555; text-align: right; }
+    
+    .eng-stops { padding: 10px 14px; border-top: 1px solid #EEE; display: none; }
+    .eng-stops.open { display: block; }
+    
+    .stop-item {
+      display: flex; gap: 10px; margin-bottom: 10px; position: relative; padding-left: 14px;
+    }
+    .stop-item::before {
+      content: ''; position: absolute; left: 0; top: 6px; bottom: -10px; width: 2px; background: #E0E0E0;
+    }
+    .stop-item:last-child::before { display: none; }
+    .stop-dot {
+      position: absolute; left: -4px; top: 4px; width: 10px; height: 10px; border-radius: 50%;
+      background: var(--beeline-yellow); border: 2px solid #FFF; box-shadow: 0 0 2px rgba(0,0,0,0.3);
+    }
+    .stop-body { flex: 1; }
+    .stop-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; }
+    .stop-addr { font-size: 11px; color: #444; margin: 2px 0; }
+    .stop-details { font-size: 11px; color: var(--beeline-gray); display: flex; gap: 8px; align-items: center; }
+    .stop-tag {
+      display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #FFF;
+    }
+    .tag-accident { background: var(--status-accident); }
+    .tag-connect { background: var(--status-connect); }
+    .tag-repair { background: var(--status-repair); }
+    .tag-order { background: var(--status-order); }
+    
+    .btn-explain {
+      background: #F0F4C3; border: 1px solid #DCE775; color: #33691E; border-radius: 4px;
+      padding: 2px 6px; font-size: 10px; font-weight: 600; cursor: pointer; margin-top: 4px; display: inline-flex; align-items: center; gap: 3px;
+    }
+    .btn-explain:hover { background: #E6EE9C; }
+    
+    /* ЗОНА КАРТЫ OpenStreetMap */
+    .map-container { flex: 1; height: 100%; position: relative; background: #E8E8E8; }
+    #map { width: 100%; height: 100%; }
+    
+    /* OSM ИНДИКАТОР */
+    .map-brand-badge {
+      position: absolute; bottom: 8px; left: 8px; z-index: 900; background: rgba(255,255,255,0.92);
+      border: 1px solid #CCC; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700;
+      color: #0070BA; display: flex; align-items: center; gap: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    }
+    
+    /* ДРАГ-ЭНД-ДРОП ОВЕРЛЕЙ */
+    .dropzone-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 204, 0, 0.90);
+      display: none; justify-content: center; align-items: center; z-index: 2000;
+      flex-direction: column; gap: 16px; border: 4px dashed var(--beeline-black);
+    }
+    .dropzone-overlay.dragover { display: flex; }
+    .dropzone-text { font-size: 22px; font-weight: 800; color: var(--beeline-black); }
+    
+    /* МОДАЛЬНОЕ ОКНО XAI */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5);
+      display: none; justify-content: center; align-items: center; z-index: 3000;
+    }
+    .modal-box {
+      background: #FFF; width: 500px; max-width: 90%; border-radius: 12px; padding: 20px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25); border-top: 5px solid var(--beeline-yellow);
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .modal-head h3 { font-size: 16px; font-weight: 700; }
+    .modal-close { font-size: 20px; cursor: pointer; border: none; background: transparent; font-weight: 700; color: #888; }
+    .modal-body { font-size: 13px; line-height: 1.5; color: #333; max-height: 400px; overflow-y: auto; white-space: pre-wrap; background: #F9F9F9; padding: 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <!-- ШАПКА С ВКЛАДКАМИ И КНОПКОЙ ЗАГРУЗКИ -->
+  <header>
+    <div class="header-logo">
+      <div class="logo-stripe"></div>
+      <div class="header-title">
+        <h1>билайн бизнес</h1>
+        <p>Маршрутизация выездных инженеров (VRP-TW-S)</p>
+      </div>
+    </div>
+    
+    <!-- ВКЛАДКИ ЗАГРУЖЕННЫХ CSV -->
+    <div class="tabs-container" id="tabsBar">
+      <!-- Вкладки формируются динамически -->
+    </div>
+    
+    <!-- КНОПКА ЗАГРУЗИТЬ CSV -->
+    <div class="header-actions">
+      <button class="btn-download" onclick="downloadScheduleTable()" title="Скачать полное расписание всех инженеров в CSV (Excel)">
+        📥 Скачать таблицей
+      </button>
+      <input type="file" id="fileInput" accept=".csv" style="display:none;" onchange="handleFileInput(event)">
+      <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
+        📁 Загрузить CSV
+      </button>
+    </div>
+  </header>
+
+  <!-- ОСНОВНОЙ КОНТЕЙНЕР -->
+  <div class="main-container" id="dropArea">
+    
+    <!-- ПУСТОЕ СОСТОЯНИЕ (КОГДА НЕТ ВКЛАДОК) -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📂</div>
+      <div class="empty-title">Нет загруженных файлов</div>
+      <div class="empty-desc">Перетащите сюда файл заявок <b>.csv</b> или нажмите кнопку «Загрузить CSV» в шапке, чтобы запустить расчет оптимальных маршрутов.</div>
+      <button class="btn-upload" style="padding:10px 24px; font-size:14px;" onclick="document.getElementById('fileInput').click()">
+        📁 Выбрать CSV файл
+      </button>
+    </div>
+
+    <!-- БОКОВАЯ ПАНЕЛЬ -->
+    <div class="sidebar" id="sidebar">
+      
+      <!-- KPI СЕКЦИЯ -->
+      <div class="kpi-section">
+        <div class="kpi-title">
+          <span>Сводка эффективности</span>
+          <span style="font-size:11px; font-weight:normal; color:#666;" id="activeFileName">Файл не выбран</span>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-val" id="kpiEngineers">0</div>
+            <div class="kpi-lbl">Инженеров</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-val" id="kpiMileage">0 км</div>
+            <div class="kpi-lbl">Пробег</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-val" id="kpiTasks">0</div>
+            <div class="kpi-lbl">Заявок</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-val" id="kpiSaved">0</div>
+            <div class="kpi-lbl">Дозаказов</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- ПАНЕЛЬ СЦЕНАРИЕВ ПЕРЕПЛАНИРОВАНИЯ (ТРЕБОВАНИЕ ТЗ) -->
+      <div class="events-toolbar">
+        <div class="events-header">
+          <div class="events-title">⚡ Моделирование инцидентов:</div>
+          <button class="btn-reset-plan" onclick="resetToOriginalPlan()" title="Сбросить инциденты и вернуть базовый план">🔄 Сброс плана</button>
+        </div>
+
+        <div class="incident-tabs">
+          <button class="incident-tab-btn active" id="tabBtnCancel" onclick="switchIncidentTab('cancel')">❌ Отмена клиентом</button>
+          <button class="incident-tab-btn" id="tabBtnBreakdown" onclick="switchIncidentTab('breakdown')">⚠️ Поломка авто</button>
+          <button class="incident-tab-btn" id="tabBtnAccident" onclick="switchIncidentTab('accident')">🚨 Срочная авария</button>
+        </div>
+
+        <!-- Панель 1: Отмена заявки -->
+        <div class="incident-panel active" id="panelCancel">
+          <label class="incident-label">Выберите заявку для отмены клиентом:</label>
+          <select class="incident-select" id="cancelReqSelect">
+            <option>Загрузка заявок...</option>
+          </select>
+          <button class="btn-incident-apply red" onclick="applyCancelEvent()">
+            ❌ Отменить заявку и оптимизировать маршрут
+          </button>
+        </div>
+
+        <!-- Панель 2: Поломка транспорта инженера -->
+        <div class="incident-panel" id="panelBreakdown">
+          <div style="display:flex; gap:8px;">
+            <div style="flex:2;">
+              <label class="incident-label">Инженер:</label>
+              <select class="incident-select" id="breakdownEngSelect"></select>
+            </div>
+            <div style="flex:1;">
+              <label class="incident-label">Время схода:</label>
+              <input type="time" class="incident-input" id="breakdownTime" value="13:30">
+            </div>
+          </div>
+          <button class="btn-incident-apply orange" onclick="applyBreakdownEvent()">
+            ⚠️ Снять инженера с линии и передать заявки
+          </button>
+        </div>
+
+        <!-- Панель 3: Внезапная авария на ТКД -->
+        <div class="incident-panel" id="panelAccident">
+          <div style="display:flex; gap:8px;">
+            <div style="flex:1;">
+              <label class="incident-label">Район аварии:</label>
+              <select class="incident-select" id="accidentDistrictSelect"></select>
+            </div>
+            <div style="flex:1;">
+              <label class="incident-label">Время фиксации:</label>
+              <input type="time" class="incident-input" id="accidentTime" value="11:30">
+            </div>
+          </div>
+          <div>
+            <label class="incident-label">Адрес узла связи (ТКД):</label>
+            <input type="text" class="incident-input" id="accidentAddress" value="ул. Юных Ленинцев, д. 42 (ТКД)">
+          </div>
+          <button class="btn-incident-apply dark-red" onclick="applyAccidentEvent()">
+            🚨 Ввести аварию в план с высшим приоритетом
+          </button>
+        </div>
+      </div>
+      
+      <!-- РАСПИСАНИЕ ИНЖЕНЕРОВ -->
+      <div class="schedule-header">
+        <h3>График объезда по бригадам</h3>
+        <select class="filter-select" id="engineerFilter" onchange="filterEngineer(this.value)">
+          <option value="ALL">Все инженеры</option>
+        </select>
+      </div>
+      
+      <!-- СПИСОК КАРТОЧЕК -->
+      <div class="schedule-content" id="scheduleList">
+        <!-- Карточки генерируются динамически -->
+      </div>
+      
+    </div>
+
+    <!-- КАРТА OpenStreetMap -->
+    <div class="map-container" id="mapContainer">
+      <div id="map"></div>
+      
+      
+      <!-- ДРАГ-ЭНД-ДРОП ОВЕРЛЕЙ -->
+      <div class="dropzone-overlay" id="dropzoneOverlay">
+        <div class="dropzone-text">📂 Отпустите CSV для создания новой вкладки</div>
+      </div>
+    </div>
+    
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО XAI (ОБЪЯСНЕНИЕ РЕШЕНИЯ ДИСПЕТЧЕРУ) -->
+  <div class="modal-overlay" id="explainModal" onclick="closeModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <h3 id="modalTitle">💡 Обоснование решения (XAI)</h3>
+        <button class="modal-close" onclick="closeModalDirect()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalText">
+        ...
+      </div>
+    </div>
+  </div>
+
+  <!-- СКРИПТ LEAFLET -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- ДВИЖОК ОПТИМИЗАЦИИ И СИСТЕМА ВКЛАДОК С КАРТАМИ OpenStreetMap -->
+  <script>
+    // ХРАНИЛИЩЕ ВКЛАДОК CSV
+    // Каждая вкладка: { id, name, csvInput, solution, baseline, depotCoords }
+    let tabSessions = [];
+    let activeTabId = null;
+
+    // НАЧАЛЬНЫЙ ДАТАСЕТ
+    const INITIAL_CSV_LINES = ["Заявка;Тип заявки BK;Тип заявки HD;Начало;Окончание;Район;Адрес;Подключение;Гигабитное подключение", "74198;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;Город Москва, пр-кт.Волгоградский, д. 128 к 5;FMC;Нет", "86160;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, пер.Маяковского, д. 2;FMC;Нет", "50104;Подключение;Заявка на подключение;17.08.2026 18:00;17.08.2026 20:00;Текстильщики;Город Москва, ул.Грайвороновская, д. 10 к 2;;Да", "46393;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Рязанский;Город Москва, ул.Михайлова, д. 14;FMC;Нет", "10135;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.3-я Институтская, д. 5 к 2;FMC;Нет", "18754;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.1-я Новокузьминская, д. 16 к 1;FMC;Нет", "84627;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;Город Москва, ул.Окская, д. 32;FMC;Нет", "61540;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Кузьминки;Город Москва, ул.Юных Ленинцев, д. 84;FMC;Нет", "74949;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Таганский;Город Москва, ул.Международная, д. 28 стр. 1;FMC;Нет", "41077;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Новорогожская, д. 8;FMC;Нет", "87693;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Текстильщики;Город Москва, ул.Чистова, д. 12;FMC;Нет", "93086;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Рязанский;Город Москва, ул.Паперника, д. 19;FMC;Нет", "57866;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Рязанский;Город Москва, ул.Окская, д. 48/2;FMC;Нет", "35675;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Южнопортовый;Город Москва, ул.Трофимова, д. 24 к 2;FMC;Нет", "82388;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Южнопортовый;Город Москва, ул.1-я Дубровская, д. 6;FMC;Нет", "23380;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Рогожский Вал, д. 2/50;FMC;Нет", "37272;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Таганский;Город Москва, ул.Талалихина, д. 2/1 к 4;FMC;Нет", "71388;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Артюхиной, д. 20А;FMC;Нет", "34366;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Текстильщики;Город Москва, ул.Малышева, д. 13;FMC;Нет", "67554;Подключение;Заявка на подключение;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Бронницкая, д. 12;;Нет", "94409;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Лефортово;Город Москва, ул.Авиамоторная, д. 14;FMC;Нет", "10245;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Кузьминки;Город Москва, ул.Фёдора Полетаева, д. 2 к 6;FMC;Нет", "52405;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Рязанский;Город Москва, ул.Зарайская, д. 51 к 2;FMC;Нет", "30769;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Саратовская, д. 14/1;FMC;Нет", "98182;Подключение;Заявка на подключение;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.Нижегородская, д. 63;;Нет", "76082;Подключение;Заказ подключения/Дозаказ оборудования;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Смирновская, д. 6;FTTB;Нет", "29890;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Нижегородская, д. 61;FMC;Нет", "77563;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Кузьминки;Город Москва, ул.Зеленодольская, д. 28Б;FMC;Нет", "53587;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Текстильщики;Город Москва, ул.Артюхиной, д. 16;FMC;Нет", "82808;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Нижегородский;Город Москва, ул.3-я Карачаровская, д. 4 к 1;FMC;Нет", "7939;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Рязанский;Город Москва, пр-кт.Рязанский, д. 73;FMC;Нет", "92031;Дозаказ;Дозаказ оборудования;17.08.2026 18:00;17.08.2026 20:00;Выхино;Город Москва, ул.Ферганская, д. 28/7;FMC;Нет", "31260;Дозаказ;Дозаказ оборудования;17.08.2026 20:00;17.08.2026 22:00;Выхино;Город Москва, б-р.Самаркандский Квартал 137а, д. к5;FMC;Нет", "69967;Дозаказ;Заказ подключения/Дозаказ оборудования;17.08.2026 10:00;17.08.2026 12:00;Лефортово;Город Москва, ул.Боровая, д. 14;FTTB;Да", "22634;Дозаказ;Дозаказ оборудования;17.08.2026 14:00;17.08.2026 16:00;Таганский;Город Москва, ул.Стройковская, д. 8;FMC;Нет", "98815;Дозаказ;Дозаказ оборудования;17.08.2026 18:00;17.08.2026 20:00;Лефортово;Город Москва, ул.2-я Синичкина, д. 9 к 1;FMC;Нет", "33527;Дозаказ;Дозаказ оборудования;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Москва, проезд Орехово-Зуевский, д. 18/8;FMC;Нет", "21571;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, пер.Большой Рогожский, д. 10 к 2;;Нет", "47670;Локальная заявка;Нет линка;17.08.2026 20:00;17.08.2026 22:00;Басманный;Город Москва, ул.Машкова, д. 13 стр. 1;;Нет", "17892;Локальная заявка;Переключение на Гбит/с;17.08.2026 18:00;17.08.2026 20:00;Текстильщики;Город Москва, ул.11-я Текстильщиков, д. 10;;Нет", "51115;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.Паперника, д. 18;;Нет", "76643;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, ул.Большая Калитниковская, д. 38;;Нет", "43506;Локальная заявка;Переключение на Гбит/с;17.08.2026 20:00;17.08.2026 22:00;Выхино;Город Москва, б-р.Самаркандский Квартал 137а, д. к5;;Нет", "48174;Локальная заявка;Мониторинг;17.08.2026 18:00;17.08.2026 20:00;Кузьминки;Город Москва, ул.Маршала Чуйкова, д. 9 к 2;;Нет", "48227;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Талалихина, д. 16;;Нет", "60720;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Текстильщики;Город Москва, б-р.Волжский, д. 50 к 2;;Нет", "48238;Локальная заявка;Разрывы;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Артюхиной, д. 3;;Нет", "41912;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Выхино;Город Москва, проезд.Ферганский, д. 7 к 5;;Нет", "4893;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Басманный;Город Москва, ул.Земляной Вал, д. 24/30 стр. 1;;Нет", "68476;Локальная заявка;Разрывы;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.3-я Карачаровская, д. 8 к 2;;Нет", "50219;Локальная заявка;Нет линка;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.Чистопольская, д. 2 к 2;;Нет", "76678;Локальная заявка;Работа с кабелем;17.08.2026 10:00;17.08.2026 12:00;Лефортово;Город Москва, ул.Боровая, д. 12;;Нет", "47330;Локальная заявка;Роутер. Замена техническим специалистом;17.08.2026 14:00;17.08.2026 16:00;Лефортово;Город Москва, ул.Красноказарменная, д. 9Б стр. 1;;Нет", "26645;Локальная заявка;TVE/ENT. Другие ошибки;17.08.2026 16:00;17.08.2026 18:00;Лефортово;Город Москва, ул.Сторожевая, д. 31;;Нет", "24076;Локальная заявка;Роутер. Замена техническим специалистом;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Новорогожская, д. 10;;Нет", "30243;Локальная заявка;TVE/ENT. Замена приставки техником;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, ул.Нижегородская, д. 25;;Нет", "32807;Локальная заявка;Работа с кабелем;17.08.2026 10:00;17.08.2026 12:00;Кузьминки;Город Москва, ул.Окская, д. 6 к 1;;Нет", "73572;Локальная заявка;Нет линка;17.08.2026 14:00;17.08.2026 16:00;Кузьминки;Город Москва, пр-кт.Волгоградский, д. 97 к 1;;Нет", "41962;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Выхино;г.Город Москва, б-р.Самаркандский, д. 32к1;;Нет", "97886;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Выхино;г.Город Москва, б-р.Самаркандский, д. 10к2;;Нет", "17349;Глобальная проблема;Информация;17.08.2026 14:00;17.08.2026 16:00;Таганский;г.Город Москва, ул.Новорогожская, д. 20;;Нет", "54964;Глобальная проблема;Информация;17.08.2026 10:00;17.08.2026 12:00;Выхино;г.Город Москва, ул.Ташкентская, д. 16к2;;Нет", "21367;Глобальная проблема;Авария;17.08.2026 20:00;17.08.2026 22:00;Текстильщики;г.Город Москва, ул.Саратовская, д. 16;;Нет", "24980;Глобальная проблема;Авария;17.08.2026 10:00;17.08.2026 12:00;Басманный;г.Город Москва, наб.Семеновская, д. 3/1к2;;Нет", "15648;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Басманный;г.Город Москва, наб.Семеновская, д. 2/1;;Нет", "57299;Глобальная проблема;Авария;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;г.Город Москва, пр-кт.Волгоградский, д. 128к1;;Нет", ";;;;;;;;", ";;;;;;;;", "Адрес Офиса;г. Москва, ул Юных Ленинцев, д 83с 4;;;;;;;"];
+
+    // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ
+    const DISTRICT_COORDS = {
+      'Таганский': [55.7415, 37.6608], 'Текстильщики': [55.7088, 37.7312],
+      'Рязанский': [55.7171, 37.7788], 'Кузьминки': [55.7051, 37.7656],
+      'Марьино': [55.6500, 37.7400], 'Люблино': [55.6766, 37.7618],
+      'Печатники': [55.7000, 37.7100], 'Нижегородский': [55.7314, 37.7153],
+      'Лефортово': [55.7500, 37.7000], 'Южнопортовый': [55.7100, 37.6700],
+      'Даниловский': [55.7100, 37.6300], 'Донской': [55.7000, 37.6000],
+      'Нагатино-Садовники': [55.6700, 37.6400], 'Нагорный': [55.6700, 37.6100],
+      'Чертаново Северное': [55.6300, 37.6000], 'Чертаново Центральное': [55.6100, 37.6000],
+      'Чертаново Южное': [55.5900, 37.6000], 'Бирюлево Восточное': [55.5800, 37.6600],
+      'Бирюлево Западное': [55.5800, 37.6400], 'Царицыно': [55.6200, 37.6700],
+      'Орехово-Борисово Северное': [55.6100, 37.7100], 'Орехово-Борисово Южное': [55.6000, 37.7300],
+      'Зябликово': [55.6200, 37.7500], 'Братеево': [55.6300, 37.7600],
+      'Кашира': [54.8394, 38.1569], 'Ступино': [54.8864, 38.0772], 'Домодедово': [55.4419, 37.7628]
+    };
+
+    const DEPOT_COORDS = {
+      'Юных Ленинцев': [55.7032, 37.7712],
+      'Симферопольский': [55.6605, 37.6124],
+      'Бирюлёвская': [55.5912, 37.6631]
+    };
+
+    const ENG_COLORS = [
+      '#D32F2F', '#1976D2', '#388E3C', '#F57C00', '#7B1FA2',
+      '#0097A7', '#C2185B', '#512DA8', '#00796B', '#689F38',
+      '#E64A19', '#5D4037', '#455A64', '#0288D1', '#FBC02D'
+    ];
+
+    let mapInstance = null;
+    let routeLayers = [];
+    let markerLayers = [];
+
+    // ГЕОДЕЗИЧЕСКИЙ РАСЧЁТ ДИСТАНЦИИ
+    function haversineKm(c1, c2) {
+      const R = 6371;
+      const dLat = (c2[0] - c1[0]) * Math.PI / 180;
+      const dLon = (c2[1] - c1[1]) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(c1[0]*Math.PI/180) * Math.cos(c2[0]*Math.PI/180) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function travelTimeMin(c1, c2) {
+      const dist = haversineKm(c1, c2);
+      return Math.max(10, Math.round(dist * 2.2 + 8));
+    }
+
+    function hashStr(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      return Math.abs(hash);
+    }
+
+    function getCoords(district, address) {
+      let base = DISTRICT_COORDS[district] || [55.7512, 37.6184];
+      const seed = hashStr(address || district);
+      const angle = (seed % 628) / 100;
+      const radiusKm = 0.2 + ((seed % 100) / 100) * 0.9;
+      const dlat = (radiusKm / 111.0) * Math.cos(angle);
+      const dlon = (radiusKm / (111.0 * Math.cos(base[0] * Math.PI / 180))) * Math.sin(angle);
+      return [base[0] + dlat, base[1] + dlon];
+    }
+
+    // ПАРСЕР CSV
+    function parseCsv(csvInput) {
+      const lines = Array.isArray(csvInput) ? csvInput : csvInput.split(/\r?\n/);
+      if (!lines.length) return null;
+
+      const requests = [];
+      let depotAddress = '';
+      let districtHint = '';
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const parts = line.split(';');
+        if (parts.length < 5) continue;
+
+        if (parts[0].toLowerCase().includes('адрес офиса') || (parts[6] && parts[6].toLowerCase().includes('юных ленинцев'))) {
+          depotAddress = parts[6] || parts[0];
+          continue;
+        }
+
+        const reqId = parts[0].trim();
+        const typeBk = (parts[1] || '').trim();
+        const typeHd = (parts[2] || '').trim();
+        const startStr = (parts[3] || '').trim();
+        const endStr = (parts[4] || '').trim();
+        const district = (parts[5] || '').trim();
+        const address = (parts[6] || '').trim();
+        const tech = (parts[7] || '').trim();
+        const gigabit = (parts[8] || '').trim().toLowerCase() === 'да';
+
+        if (district && !districtHint) districtHint = district;
+
+        let category = 'repair';
+        let reqSkill = 'local_repair';
+        let durationMin = 30;
+
+        const lowBk = typeBk.toLowerCase();
+        const lowHd = typeHd.toLowerCase();
+
+        if (lowBk.includes('подключение') || lowHd.includes('конвергенция') || lowHd.includes('подключение')) {
+          category = 'connection';
+          reqSkill = 'connection';
+          durationMin = 70;
+        } else if (lowBk.includes('дозаказ') || lowHd.includes('дозаказ')) {
+          category = 'additional_order';
+          reqSkill = 'connection';
+          durationMin = 20;
+        } else if (lowHd.includes('авария') || lowBk.includes('авария') || lowBk.includes('глобальная')) {
+          category = 'accident';
+          reqSkill = 'accident';
+          durationMin = 80;
+        }
+
+        let winStart = 600;
+        let winEnd = 720;
+        try {
+          if (startStr.includes(' ')) {
+            const [h, m] = startStr.split(' ')[1].split(':').map(Number);
+            winStart = h * 60 + m;
+          }
+          if (endStr.includes(' ')) {
+            const [h, m] = endStr.split(' ')[1].split(':').map(Number);
+            winEnd = h * 60 + m;
+          }
+        } catch(e) {}
+
+        const coords = getCoords(district, address);
+
+        requests.push({
+          id: reqId,
+          typeBk: typeBk,
+          typeHd: typeHd,
+          category: category,
+          reqSkill: reqSkill,
+          durationMin: durationMin,
+          district: district,
+          address: address,
+          tech: tech,
+          gigabit: gigabit,
+          winStart: winStart,
+          winEnd: winEnd,
+          coords: coords
+        });
+      }
+
+      let depotCoords = [55.7032, 37.7712];
+      for (const k in DEPOT_COORDS) {
+        if (depotAddress.includes(k) || districtHint.includes('Кашира') || districtHint.includes('Ступино')) {
+          depotCoords = DEPOT_COORDS[k];
+          break;
+        }
+      }
+
+      return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint };
+    }
+
+    // МОДЕЛИРОВАНИЕ ИНЖЕНЕРОВ
+    function createEngineers(count, depotCoords, isRemote) {
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        let skills = ['local_repair', 'connection'];
+        let role = 'Универсал';
+        if (i % 4 === 0) {
+          skills.push('accident');
+          role = 'Ведущий инженер (Аварийщик)';
+        } else if (i % 4 === 1) {
+          role = 'Специалист подключений';
+        }
+
+        let startCoords = depotCoords;
+        if (isRemote && i >= count - 3) {
+          startCoords = DISTRICT_COORDS['Ступино'] || depotCoords;
+        }
+
+        list.push({
+          id: 'ENG-' + (i + 1),
+          name: 'Инженер ' + (i + 1),
+          role: role,
+          skills: skills,
+          startCoords: startCoords,
+          shiftStart: 540,
+          shiftEnd: 1260,
+          tasks: [],
+          totalKm: 0,
+          totalDriveMin: 0
+        });
+      }
+      return list;
+    }
+
+    // ВСТАВКА ЗАЯВКИ В МАРШРУТ
+    function tryInsert(eng, req, allowWait) {
+      if (!eng.skills.includes(req.reqSkill)) return null;
+
+      const n = eng.tasks.length;
+      for (let pos = 0; pos <= n; pos++) {
+        let curTime = eng.shiftStart;
+        let curCoords = eng.startCoords;
+        let ok = true;
+        let kmAcc = 0;
+        let driveMinAcc = 0;
+        const candidateTasks = eng.tasks.slice();
+        candidateTasks.splice(pos, 0, req);
+
+        const schedule = [];
+
+        for (let j = 0; j < candidateTasks.length; j++) {
+          const t = candidateTasks[j];
+          const legKm = haversineKm(curCoords, t.coords);
+          const legDrive = travelTimeMin(curCoords, t.coords);
+          kmAcc += legKm;
+          driveMinAcc += legDrive;
+
+          const arrTime = curTime + legDrive;
+          if (arrTime > t.winEnd) { ok = false; break; }
+
+          const startWork = Math.max(arrTime, t.winStart);
+          const endWork = startWork + t.durationMin;
+          if (endWork > eng.shiftEnd) { ok = false; break; }
+
+          schedule.push({
+            task: t,
+            arrTime: arrTime,
+            startWork: startWork,
+            endWork: endWork,
+            legKm: legKm,
+            legDrive: legDrive
+          });
+
+          curTime = endWork;
+          curCoords = t.coords;
+        }
+
+        if (ok) {
+          return { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
+        }
+      }
+      return null;
+    }
+
+    // ИЕРАРХИЧЕСКАЯ 4-ПРОХОДНАЯ ОПТИМИЗАЦИЯ
+    function solve4Pass(requests, depotCoords, isRemote) {
+      const engineers = createEngineers(14, depotCoords, isRemote);
+      const unassigned = [];
+      const assignedReqs = new Set();
+
+      function runPass(filterFn, maxEngToOpen, passName) {
+        const pool = requests.filter(r => !assignedReqs.has(r.id) && filterFn(r));
+        pool.sort((a, b) => a.winStart - b.winStart);
+
+        for (const req of pool) {
+          let bestCost = Infinity;
+          let bestPlan = null;
+          let bestEng = null;
+
+          for (let e = 0; e < maxEngToOpen; e++) {
+            const eng = engineers[e];
+            const plan = tryInsert(eng, req, true);
+            if (plan) {
+              const deltaKm = plan.kmAcc - eng.totalKm;
+              if (deltaKm < bestCost) {
+                bestCost = deltaKm;
+                bestPlan = plan;
+                bestEng = eng;
+              }
+            }
+          }
+
+          if (bestEng && bestPlan) {
+            bestEng.tasks = bestPlan.schedule.map(s => s.task);
+            bestEng.schedule = bestPlan.schedule;
+            bestEng.totalKm = bestPlan.kmAcc;
+            bestEng.totalDriveMin = bestPlan.driveMinAcc;
+            assignedReqs.add(req.id);
+            req.assignedTo = bestEng.name;
+            req.passName = passName;
+          } else {
+            if (passName !== 'Ремонты' && passName !== 'Дозаказы') {
+              unassigned.push({ req: req, reason: 'Конфликт временных окон или дефицит навыка' });
+            }
+          }
+        }
+      }
+
+      runPass(r => r.category === 'accident', 4, 'Аварии');
+      runPass(r => r.category === 'connection', 10, 'Подключения');
+      runPass(r => r.category === 'repair', 11, 'Ремонты');
+      const openEngCount = engineers.filter(e => e.tasks.length > 0).length || 8;
+      runPass(r => r.category === 'additional_order', openEngCount, 'Дозаказы');
+
+      const activeEngineers = engineers.filter(e => e.tasks.length > 0);
+      let totalKm = 0;
+      let totalDrive = 0;
+      activeEngineers.forEach(e => {
+        totalKm += e.totalKm;
+        totalDrive += e.totalDriveMin;
+      });
+
+      return {
+        engineers: activeEngineers,
+        unassigned: unassigned,
+        totalKm: Math.round(totalKm * 10) / 10,
+        totalDrive: totalDrive,
+        assignedCount: assignedReqs.size
+      };
+    }
+
+    // BASELINE FIFO
+    function solveBaseline(requests, depotCoords, isRemote) {
+      const engineers = createEngineers(16, depotCoords, isRemote);
+      let assigned = 0;
+
+      for (const req of requests) {
+        for (const eng of engineers) {
+          const plan = tryInsert(eng, req, false);
+          if (plan) {
+            eng.tasks = plan.schedule.map(s => s.task);
+            eng.schedule = plan.schedule;
+            eng.totalKm = plan.kmAcc;
+            eng.totalDriveMin = plan.driveMinAcc;
+            assigned++;
+            break;
+          }
+        }
+      }
+
+      const active = engineers.filter(e => e.tasks.length > 0);
+      let km = 0;
+      active.forEach(e => km += e.totalKm);
+      return { engineers: active, totalKm: Math.round(km * 10) / 10, assignedCount: assigned };
+    }
+
+    // ИНИЦИАЛИЗАЦИЯ КАРТЫ С ТАЙЛАМИ OpenStreetMap
+    function initMap() {
+      if (typeof L === 'undefined') return;
+      if (mapInstance) return;
+
+      mapInstance = L.map('map').setView([55.70, 37.75], 11);
+
+      // 1. Карты 2ГИС (2GIS)
+      const gisLayer = L.tileLayer('https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1', {
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 18,
+        attribution: '&copy; <a href="https://2gis.ru" target="_blank">2ГИС</a>'
+      });
+
+      // 2. Спутниковый снимок (Esri World Imagery)
+      const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; Esri &mdash; World Imagery'
+      });
+
+      // 2ГИС по умолчанию
+      gisLayer.addTo(mapInstance);
+
+      // Оставляем строго 2ГИС и Спутник
+      L.control.layers({
+        '🗺️ 2ГИС': gisLayer,
+        '🛰️ Спутник': esriSat
+      }, null, { position: 'topright' }).addTo(mapInstance);
+    }
+
+    function renderMap(sol, depotCoords) {
+      if (!mapInstance) initMap();
+      if (!mapInstance) return;
+
+      routeLayers.forEach(l => mapInstance.removeLayer(l));
+      markerLayers.forEach(m => mapInstance.removeLayer(m));
+      routeLayers = [];
+      markerLayers = [];
+
+      // Депо / Склад
+      const depotIcon = L.divIcon({
+        className: 'depot-marker',
+        html: '<div style="background:#FFCC00; border:2px solid #000; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:14px; box-shadow:0 2px 5px rgba(0,0,0,0.4);">🏢</div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+      const dMarker = L.marker(depotCoords, { icon: depotIcon }).addTo(mapInstance).bindPopup('<b>Офис / Склад билайн</b><br>Точка старта инженеров');
+      markerLayers.push(dMarker);
+
+      const allBounds = [depotCoords];
+
+      sol.engineers.forEach((eng, idx) => {
+        const color = ENG_COLORS[idx % ENG_COLORS.length];
+        const latlngs = [eng.startCoords];
+
+        eng.schedule.forEach((s, stepIdx) => {
+          latlngs.push(s.task.coords);
+          allBounds.push(s.task.coords);
+
+          let borderCol = '#FB8C00';
+          if (s.task.category === 'accident') borderCol = '#E53935';
+          else if (s.task.category === 'connection') borderCol = '#43A047';
+          else if (s.task.category === 'additional_order') borderCol = '#8E24AA';
+
+          const stopIcon = L.divIcon({
+            className: 'stop-marker',
+            html: '<div style="background:#FFF; border:2px solid ' + borderCol + '; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:#000; box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + (stepIdx + 1) + '</div>',
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+          });
+
+          const popupContent = '<b>Заявка №' + s.task.id + '</b> (' + s.task.typeHd + ')<br>' +
+            '<b>Исполнитель:</b> ' + eng.name + '<br>' +
+            '<b>Окно клиента:</b> ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '<br>' +
+            '<b>Прибытие:</b> ' + formatTime(s.arrTime) + ' (дорога: ' + s.legDrive + ' мин)<br>' +
+            '<b>Работы:</b> ' + formatTime(s.startWork) + ' - ' + formatTime(s.endWork) + '<br>' +
+            '<b>Адрес:</b> ' + s.task.address;
+
+          const m = L.marker(s.task.coords, { icon: stopIcon }).addTo(mapInstance).bindPopup(popupContent);
+          m.engId = eng.id;
+          markerLayers.push(m);
+        });
+
+        const poly = L.polyline(latlngs, {
+          color: color,
+          weight: 4,
+          opacity: 0.85
+        }).addTo(mapInstance);
+        poly.engId = eng.id;
+        routeLayers.push(poly);
+      });
+
+      if (allBounds.length > 1) {
+        mapInstance.fitBounds(allBounds, { padding: [30, 30] });
+      }
+    }
+
+    function formatTime(min) {
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
+    function renderKPI(sol, base) {
+      document.getElementById('kpiEngineers').innerText = sol.engineers.length;
+      document.getElementById('kpiMileage').innerText = sol.totalKm + ' км';
+      document.getElementById('kpiTasks').innerText = sol.assignedCount;
+
+      const pass4Count = sol.engineers.reduce((acc, e) => acc + e.tasks.filter(t => t.category === 'additional_order').length, 0);
+      document.getElementById('kpiSaved').innerText = pass4Count;
+    }
+
+    function renderSchedule(sol) {
+      const container = document.getElementById('scheduleList');
+      const filter = document.getElementById('engineerFilter');
+      container.innerHTML = '';
+      filter.innerHTML = '<option value="ALL">Все инженеры</option>';
+
+      sol.engineers.forEach((eng, idx) => {
+        const color = ENG_COLORS[idx % ENG_COLORS.length];
+        const opt = document.createElement('option');
+        opt.value = eng.id;
+        opt.innerText = eng.name + ' (' + eng.tasks.length + ' заявок)';
+        filter.appendChild(opt);
+
+        const card = document.createElement('div');
+        card.className = 'engineer-card';
+        card.id = 'card-' + eng.id;
+
+        let stopsHtml = '';
+        eng.schedule.forEach((s, stepIdx) => {
+          let tagClass = 'tag-repair';
+          let tagText = 'Ремонт';
+          if (s.task.category === 'accident') { tagClass = 'tag-accident'; tagText = 'Авария'; }
+          else if (s.task.category === 'connection') { tagClass = 'tag-connect'; tagText = 'Подключение'; }
+          else if (s.task.category === 'additional_order') { tagClass = 'tag-order'; tagText = 'Дозаказ'; }
+
+          stopsHtml += '<div class="stop-item">' +
+            '<div class="stop-dot"></div>' +
+            '<div class="stop-body">' +
+              '<div class="stop-head">' +
+                '<span>' + (stepIdx + 1) + '. Заявка №' + s.task.id + '</span>' +
+                '<span class="stop-tag ' + tagClass + '">' + tagText + '</span>' +
+              '</div>' +
+              '<div class="stop-addr">' + s.task.address + ' (' + s.task.district + ')</div>' +
+              '<div class="stop-details">' +
+                '<span>⏱ Прибытие: <b>' + formatTime(s.arrTime) + '</b></span>' +
+                '<span>🚗 Дорога: ' + s.legDrive + ' мин</span>' +
+                '<span>⚙️ Работа: ' + s.task.durationMin + ' мин</span>' +
+              '</div>' +
+              '<button class="btn-explain" onclick="showExplanationById(&quot;' + s.task.id + '&quot;, &quot;' + eng.id + '&quot;)">💡 Объяснение диспетчеру</button>' +
+            '</div>' +
+          '</div>';
+        });
+
+        card.innerHTML = '<div class="eng-header" style="border-left-color:' + color + '" onclick="toggleCard(&quot;' + eng.id + '&quot;)">' +
+          '<div class="eng-info">' +
+            '<div class="eng-color" style="background:' + color + '"></div>' +
+            '<div>' +
+              '<div class="eng-name">' + eng.name + '</div>' +
+              '<div class="eng-role">' + eng.role + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="eng-stats">' +
+            '<div>' + eng.tasks.length + ' заявок &bull; ' + eng.totalKm.toFixed(1) + ' км</div>' +
+            '<div style="font-size:10px; color:#888;">в пути: ' + eng.totalDriveMin + ' мин</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="eng-stops" id="stops-' + eng.id + '">' + stopsHtml + '</div>';
+
+        container.appendChild(card);
+      });
+    }
+
+    function toggleCard(engId) {
+      const el = document.getElementById('stops-' + engId);
+      if (el) el.classList.toggle('open');
+    }
+
+    function filterEngineer(engId) {
+      routeLayers.forEach(poly => {
+        if (engId === 'ALL' || poly.engId === engId) {
+          poly.setStyle({ opacity: 0.9, weight: engId === 'ALL' ? 4 : 6 });
+        } else {
+          poly.setStyle({ opacity: 0.15, weight: 2 });
+        }
+      });
+      markerLayers.forEach(m => {
+        if (engId === 'ALL' || !m.engId || m.engId === engId) {
+          m.setOpacity(1.0);
+        } else {
+          m.setOpacity(0.2);
+        }
+      });
+      if (engId !== 'ALL') {
+        const stopsEl = document.getElementById('stops-' + engId);
+        if (stopsEl) stopsEl.classList.add('open');
+      }
+    }
+
+    function showExplanationById(reqId, engId) {
+      const session = getActiveSession();
+      if (!session) return;
+      const eng = session.solution.engineers.find(e => e.id === engId);
+      if (!eng) return;
+      const s = eng.schedule.find(item => String(item.task.id) === String(reqId));
+      if (!s) return;
+
+      let catTitle = 'Локальный ремонт';
+      if (s.task.category === 'accident') catTitle = 'Авария на ТКД (Высший приоритет)';
+      else if (s.task.category === 'connection') catTitle = 'Новое подключение абонента';
+      else if (s.task.category === 'additional_order') catTitle = 'Дозаказ оборудования';
+
+      const remShiftHours = Math.max(0, (eng.shiftEnd - s.endWork) / 60).toFixed(1);
+
+      const text = 'Заявка №' + s.task.id + ' (' + s.task.typeHd + ')\n' +
+        'Категория: ' + catTitle + '\n' +
+        'Исполнитель: ' + eng.name + ' (' + eng.role + ')\n\n' +
+        'ОБОСНОВАНИЕ ВЫБОРА (Explainable AI):\n' +
+        '1. Матрица навыков (Skills): Наличие требуемой компетенции "' + s.task.reqSkill + '".\n' +
+        '2. Географическая оптимизация: Ближайший доступный мастер в кластере ' + s.task.district + '. Переезд: ' + s.legKm.toFixed(1) + ' км (дорога: ' + s.legDrive + ' мин от предыдущей точки).\n' +
+        '3. Временное окно клиента: ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '. Расчетное прибытие: ' + formatTime(s.arrTime) + ' (гарантированное попадание в слот).\n' +
+        '4. Технический регламент: Работы с ' + formatTime(s.startWork) + ' до ' + formatTime(s.endWork) + ' (' + s.task.durationMin + ' мин по утвержденному нормативу ВымпелКом).\n' +
+        '5. Баланс смены: Без превышения лимита смены 21:00 (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
+        '6. Экономический эффект: Решение минимизирует холостой пробег бригады и исключает вывод дополнительного сотрудника.';
+
+      document.getElementById('modalTitle').innerText = '💡 Обоснование решения: Заявка №' + s.task.id;
+      document.getElementById('modalText').innerText = text;
+      document.getElementById('explainModal').style.display = 'flex';
+    }
+
+    function closeModalDirect() {
+      document.getElementById('explainModal').style.display = 'none';
+    }
+
+    function closeModal(e) {
+      if (e.target.id === 'explainModal') closeModalDirect();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModalDirect();
+    });
+
+    // ЭКСПОРТ РАСПИСАНИЯ В CSV/EXCEL
+    function downloadScheduleTable() {
+      const session = getActiveSession();
+      if (!session || !session.solution || !session.solution.engineers.length) {
+        alert('Нет активного расписания для скачивания.');
+        return;
+      }
+
+      const rows = [];
+      rows.push([
+        'Инженер',
+        'Роль мастера',
+        'Номер шага',
+        'Номер заявки',
+        'Категория',
+        'Вид работ (HelpDesk)',
+        'Район',
+        'Адрес',
+        'Окно клиента (Начало)',
+        'Окно клиента (Окончание)',
+        'Время прибытия',
+        'Начало работ',
+        'Окончание работ',
+        'Длительность работ (мин)',
+        'Время в дороге (мин)',
+        'Пробег плеча (км)',
+        'Суммарный пробег инженера за день (км)',
+        'Обоснование диспетчеру (XAI)'
+      ]);
+
+      session.solution.engineers.forEach(eng => {
+        eng.schedule.forEach((s, idx) => {
+          let catName = 'Ремонт';
+          if (s.task.category === 'accident') catName = 'Авария';
+          else if (s.task.category === 'connection') catName = 'Подключение';
+          else if (s.task.category === 'additional_order') catName = 'Дозаказ';
+
+          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до 21:00.';
+
+          rows.push([
+            eng.name,
+            eng.role,
+            idx + 1,
+            s.task.id,
+            catName,
+            s.task.typeHd,
+            s.task.district,
+            s.task.address,
+            formatTime(s.task.winStart),
+            formatTime(s.task.winEnd),
+            formatTime(s.arrTime),
+            formatTime(s.startWork),
+            formatTime(s.endWork),
+            s.task.durationMin,
+            s.legDrive,
+            s.legKm.toFixed(1),
+            eng.totalKm.toFixed(1),
+            xai
+          ]);
+        });
+      });
+
+      const csvContent = rows.map(r => 
+        r.map(val => {
+          const str = String(val === undefined || val === null ? '' : val).replace(/"/g, '""');
+          return '"' + str + '"';
+        }).join(';')
+      ).join('\r\n');
+
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const filename = 'Расписание_маршрутов_' + (session.name.replace(/\.[^/.]+$/, '')) + '.csv';
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    
+    // УПРАВЛЕНИЕ ВКЛАДКАМИ ИНЦИДЕНТОВ
+    function switchIncidentTab(tabName) {
+      document.querySelectorAll('.incident-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.incident-panel').forEach(p => p.classList.remove('active'));
+
+      if (tabName === 'cancel') {
+        document.getElementById('tabBtnCancel').classList.add('active');
+        document.getElementById('panelCancel').classList.add('active');
+      } else if (tabName === 'breakdown') {
+        document.getElementById('tabBtnBreakdown').classList.add('active');
+        document.getElementById('panelBreakdown').classList.add('active');
+      } else if (tabName === 'accident') {
+        document.getElementById('tabBtnAccident').classList.add('active');
+        document.getElementById('panelAccident').classList.add('active');
+      }
+    }
+
+    // ОБНОВЛЕНИЕ ВЫПАДАЮЩИХ СПИСКОВ ИНЦИДЕНТОВ
+    function updateIncidentSelectors() {
+      const session = getActiveSession();
+      if (!session || !session.solution) return;
+
+      // 1. Селектор отмены заявок
+      const cancelSel = document.getElementById('cancelReqSelect');
+      if (cancelSel) {
+        cancelSel.innerHTML = '';
+        let totalCount = 0;
+        session.solution.engineers.forEach(eng => {
+          eng.schedule.forEach(s => {
+            totalCount++;
+            const opt = document.createElement('option');
+            opt.value = eng.id + ':::' + s.task.id;
+            let tag = s.task.category === 'accident' ? '⚡ Авария' : s.task.category === 'connection' ? '🔌 Подключение' : '🛠️ Ремонт';
+            opt.innerText = '№' + s.task.id + ' (' + tag + ', ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + ') — ' + eng.name + ' [' + s.task.address.substring(0, 26) + '...]';
+            cancelSel.appendChild(opt);
+          });
+        });
+        if (totalCount === 0) {
+          cancelSel.innerHTML = '<option value="">Нет назначенных заявок</option>';
+        }
+      }
+
+      // 2. Селектор поломки инженеров
+      const bdSel = document.getElementById('breakdownEngSelect');
+      if (bdSel) {
+        bdSel.innerHTML = '';
+        session.solution.engineers.forEach(eng => {
+          const opt = document.createElement('option');
+          opt.value = eng.id;
+          opt.innerText = eng.name + ' (' + eng.role + ', ' + eng.tasks.length + ' заявок, ' + eng.totalKm.toFixed(1) + ' км)';
+          bdSel.appendChild(opt);
+        });
+      }
+
+      // 3. Селектор районов для аварии
+      const distSel = document.getElementById('accidentDistrictSelect');
+      if (distSel && distSel.children.length === 0) {
+        distSel.innerHTML = '';
+        const districts = ['Кузьминки', 'Таганский', 'Текстильщики', 'Рязанский', 'Нижегородский', 'Лефортово', 'Южнопортовый', 'Марьино', 'Люблино', 'Выхино', 'Даниловский', 'Царицыно'];
+        districts.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d;
+          opt.innerText = d;
+          distSel.appendChild(opt);
+        });
+      }
+    }
+
+    // 1. ДЕЙСТВИЕ: ОТМЕНА ВЫБРАННОЙ ЗАЯВКИ
+    function applyCancelEvent() {
+      const session = getActiveSession();
+      if (!session) return;
+      const cancelSel = document.getElementById('cancelReqSelect');
+      if (!cancelSel || !cancelSel.value) return;
+
+      const parts = cancelSel.value.split(':::');
+      const engId = parts[0];
+      const reqId = parts[1];
+
+      const eng = session.solution.engineers.find(e => e.id === engId);
+      if (!eng) return;
+
+      const oldKm = eng.totalKm;
+      eng.tasks = eng.tasks.filter(t => String(t.id) !== String(reqId));
+      recomputeEngineer(eng);
+      const savedKm = Math.max(0, oldKm - eng.totalKm).toFixed(1);
+
+      recomputeSolutionStats(session.solution);
+      renderActiveSession();
+      alert('❌ Заявка №' + reqId + ' отменена клиентом!\nМаршрут мастера ' + eng.name + ' сокращен (сэкономлено ' + savedKm + ' км пробега).');
+    }
+
+    // 2. ДЕЙСТВИЕ: ПОЛОМКА ТРАНСПОРТА ИНЖЕНЕРА В ВЫБРАННОЕ ВРЕМЯ
+    function applyBreakdownEvent() {
+      const session = getActiveSession();
+      if (!session) return;
+      const bdSel = document.getElementById('breakdownEngSelect');
+      const timeVal = document.getElementById('breakdownTime').value || '13:30';
+
+      const [h, m] = timeVal.split(':').map(Number);
+      const breakMin = h * 60 + m;
+
+      const eng = session.solution.engineers.find(e => e.id === bdSel.value);
+      if (!eng) return;
+
+      // Разделение: выполненные до поломки и оставшиеся задачи
+      const doneSchedule = eng.schedule.filter(s => s.endWork <= breakMin);
+      const orphanSchedule = eng.schedule.filter(s => s.endWork > breakMin);
+
+      if (!orphanSchedule.length) {
+        alert('К ' + timeVal + ' инженер ' + eng.name + ' уже завершил все свои заявки смены!');
+        return;
+      }
+
+      eng.tasks = doneSchedule.map(s => s.task);
+      eng.role = eng.role + ' ⚠️ (Сошел в ' + timeVal + ')';
+      recomputeEngineer(eng);
+
+      let reassignedCount = 0;
+      orphanSchedule.forEach(item => {
+        const req = item.task;
+        let placed = false;
+        for (const other of session.solution.engineers) {
+          if (other.id === eng.id) continue;
+          const plan = tryInsert(other, req, true);
+          if (plan) {
+            other.tasks = plan.schedule.map(s => s.task);
+            other.schedule = plan.schedule;
+            other.totalKm = plan.kmAcc;
+            other.totalDriveMin = plan.driveMinAcc;
+            reassignedCount++;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          session.solution.unassigned.push({ req: req, reason: 'Поломка авто ' + eng.name + ' в ' + timeVal + ' (нет окон)' });
+        }
+      });
+
+      recomputeSolutionStats(session.solution);
+      renderActiveSession();
+      alert('⚠️ Поломка авто у ' + eng.name + ' в ' + timeVal + '!\nВыполнено до инцидента: ' + doneSchedule.length + ' заявок.\nПереназначено соседним бригадам: ' + reassignedCount + ' из ' + orphanSchedule.length + '.');
+    }
+
+    // 3. ДЕЙСТВИЕ: ВНЕЗАПНАЯ СРОЧНАЯ АВАРИЯ НА ТКД
+    function applyAccidentEvent() {
+      const session = getActiveSession();
+      if (!session) return;
+
+      const district = document.getElementById('accidentDistrictSelect').value || 'Кузьминки';
+      const address = document.getElementById('accidentAddress').value || 'ул. Юных Ленинцев, д. 42 (ТКД)';
+      const timeVal = document.getElementById('accidentTime').value || '11:30';
+
+      const [h, m] = timeVal.split(':').map(Number);
+      const accMin = h * 60 + m;
+
+      const accId = 'ACC-' + Math.floor(Math.random() * 8999 + 1000);
+      const coords = getCoords(district, address);
+
+      const newAcc = {
+        id: accId,
+        typeBk: 'Авария',
+        typeHd: 'Авария на ТКД (Срочно)',
+        category: 'accident',
+        reqSkill: 'accident',
+        durationMin: 80,
+        district: district,
+        address: address,
+        winStart: accMin,
+        winEnd: Math.min(1260, accMin + 120),
+        coords: coords
+      };
+
+      // Ищем инженера с квалификацией accident
+      const candidateEngs = session.solution.engineers.filter(e => e.skills.includes('accident'));
+      const targetEng = candidateEngs[0] || session.solution.engineers[0];
+
+      // Вставляем с высшим приоритетом в начало или по времени
+      targetEng.tasks.unshift(newAcc);
+      recomputeEngineer(targetEng);
+
+      recomputeSolutionStats(session.solution);
+      renderActiveSession();
+      alert('🚨 Срочная авария на ТКД №' + accId + ' зафиксирована в ' + timeVal + '!\nНазначена ведущему инженеру ' + targetEng.name + ' (' + targetEng.role + ') с высшим приоритетом.');
+    }
+
+    // СБРОС К ИСХОДНОМУ ПЛАНУ
+    function resetToOriginalPlan() {
+      const session = getActiveSession();
+      if (!session || !session.originalSolution) return;
+      session.solution = JSON.parse(JSON.stringify(session.originalSolution));
+      renderActiveSession();
+      alert('🔄 Расписание возвращено к исходному оптимальному плану.');
+    }
+
+    // ПЕРЕСЧЕТ РАСПИСАНИЯ ОДНОГО ИНЖЕНЕРА
+    function recomputeEngineer(eng) {
+      let curTime = eng.shiftStart;
+      let curCoords = eng.startCoords;
+      let kmAcc = 0;
+      let driveMinAcc = 0;
+      const schedule = [];
+
+      for (let i = 0; i < eng.tasks.length; i++) {
+        const t = eng.tasks[i];
+        const legKm = haversineKm(curCoords, t.coords);
+        const legDrive = travelTimeMin(curCoords, t.coords);
+        kmAcc += legKm;
+        driveMinAcc += legDrive;
+
+        const arrTime = curTime + legDrive;
+        const startWork = Math.max(arrTime, t.winStart);
+        const endWork = startWork + t.durationMin;
+
+        schedule.push({
+          task: t,
+          arrTime: arrTime,
+          startWork: startWork,
+          endWork: endWork,
+          legKm: legKm,
+          legDrive: legDrive
+        });
+
+        curTime = endWork;
+        curCoords = t.coords;
+      }
+
+      eng.schedule = schedule;
+      eng.totalKm = kmAcc;
+      eng.totalDriveMin = driveMinAcc;
+    }
+
+    // ПЕРЕСЧЕТ ОБЩИХ МЕТРИК РЕШЕНИЯ
+    function recomputeSolutionStats(sol) {
+      let km = 0;
+      let drive = 0;
+      let assigned = 0;
+      sol.engineers.forEach(e => {
+        km += e.totalKm;
+        drive += e.totalDriveMin;
+        assigned += e.tasks.length;
+      });
+      sol.totalKm = Math.round(km * 10) / 10;
+      sol.totalDrive = drive;
+      sol.assignedCount = assigned;
+    }
+
+    // СИСТЕМА ВКЛАДОК ДЛЯ КАЖДОГО CSV
+    function addTabSession(name, csvInput) {
+      const parsed = parseCsv(csvInput);
+      if (!parsed || !parsed.requests.length) {
+        alert('Не удалось распознать заявки в файле ' + name);
+        return null;
+      }
+
+      const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+      const sol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote);
+      const base = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+
+      const tabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+      const session = {
+        id: tabId,
+        name: name,
+        csvInput: csvInput,
+        solution: sol,
+        baseline: base,
+        depotCoords: parsed.depotCoords,
+        reqCount: parsed.requests.length
+      };
+
+      session.originalSolution = JSON.parse(JSON.stringify(sol));
+      tabSessions.push(session);
+      renderTabs();
+      switchTab(tabId);
+      return session;
+    }
+
+    function switchTab(tabId) {
+      activeTabId = tabId;
+      renderTabs();
+      renderActiveSession();
+    }
+
+    function closeTab(tabId, event) {
+      if (event) event.stopPropagation();
+      const idx = tabSessions.findIndex(s => s.id === tabId);
+      if (idx === -1) return;
+
+      tabSessions.splice(idx, 1);
+      if (activeTabId === tabId) {
+        if (tabSessions.length > 0) {
+          const nextIdx = Math.min(idx, tabSessions.length - 1);
+          switchTab(tabSessions[nextIdx].id);
+        } else {
+          activeTabId = null;
+          renderTabs();
+          renderActiveSession();
+        }
+      } else {
+        renderTabs();
+      }
+    }
+
+    function getActiveSession() {
+      return tabSessions.find(s => s.id === activeTabId) || null;
+    }
+
+    function renderTabs() {
+      const tabsBar = document.getElementById('tabsBar');
+      tabsBar.innerHTML = '';
+
+      tabSessions.forEach(session => {
+        const tabEl = document.createElement('div');
+        tabEl.className = 'tab-item' + (session.id === activeTabId ? ' active' : '');
+        tabEl.onclick = () => switchTab(session.id);
+
+        tabEl.innerHTML = '<span class="tab-icon">📄</span>' +
+          '<span class="tab-title" title="' + session.name + '">' + session.name + ' (' + session.reqCount + ')</span>' +
+          '<span class="tab-close" title="Закрыть" onclick="closeTab(\'' + session.id + '\', event)">&times;</span>';
+
+        tabsBar.appendChild(tabEl);
+      });
+    }
+
+    function renderActiveSession() {
+      const session = getActiveSession();
+      const emptyState = document.getElementById('emptyState');
+      const sidebar = document.getElementById('sidebar');
+      const mapContainer = document.getElementById('mapContainer');
+
+      if (!session) {
+        emptyState.classList.add('visible');
+        sidebar.style.display = 'none';
+        mapContainer.style.display = 'none';
+        document.getElementById('activeFileName').innerText = 'Нет файла';
+        return;
+      }
+
+      emptyState.classList.remove('visible');
+      sidebar.style.display = 'flex';
+      mapContainer.style.display = 'block';
+      if (mapInstance) {
+        setTimeout(() => mapInstance.invalidateSize(), 50);
+      }
+
+      document.getElementById('activeFileName').innerText = session.name;
+      renderMap(session.solution, session.depotCoords);
+      renderKPI(session.solution, session.baseline);
+      renderSchedule(session.solution);
+      updateIncidentSelectors();
+    }
+
+    // ОБРАБОТКА ЗАГРУЗКИ НОВЫХ CSV ФАЙЛОВ
+    function handleFileInput(evt) {
+      const file = evt.target.files[0];
+      if (!file) return;
+      readAndAddCsv(file);
+      evt.target.value = ''; // сброс для повторной загрузки того же файла
+    }
+
+    function decodeWindows1251(bytes) {
+      let str = '';
+      const cp1251Map = {
+        0x80: 0x0402, 0x81: 0x0403, 0x82: 0x201A, 0x83: 0x0453, 0x84: 0x201E, 0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021,
+        0x88: 0x20AC, 0x89: 0x2030, 0x8A: 0x0409, 0x8B: 0x2039, 0x8C: 0x040A, 0x8D: 0x040C, 0x8E: 0x040B, 0x8F: 0x040F,
+        0x90: 0x0452, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201C, 0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,
+        0x99: 0x2122, 0x9A: 0x0459, 0x9B: 0x203A, 0x9C: 0x045A, 0x9D: 0x045C, 0x9E: 0x045B, 0x9F: 0x045F, 0xA0: 0x00A0,
+        0xA1: 0x040E, 0xA2: 0x045E, 0xA3: 0x0408, 0xA4: 0x00A4, 0xA5: 0x0490, 0xA6: 0x00A6, 0xA7: 0x00A7, 0xA8: 0x0401,
+        0xA9: 0x00A9, 0xAA: 0x0404, 0xAB: 0x00AB, 0xAC: 0x00AC, 0xAD: 0x00AD, 0xAE: 0x00AE, 0xAF: 0x0407, 0xB0: 0x00B0,
+        0xB1: 0x00B1, 0xB2: 0x0406, 0xB3: 0x0456, 0xB4: 0x0491, 0xB5: 0x00B5, 0xB6: 0x00B6, 0xB7: 0x00B7, 0xB8: 0x0451,
+        0xB9: 0x2116, 0xBA: 0x0454, 0xBB: 0x00BB, 0xBC: 0x0458, 0xBD: 0x0405, 0xBE: 0x0455, 0xBF: 0x0457
+      };
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b < 0x80) {
+          str += String.fromCharCode(b);
+        } else if (b >= 0xC0 && b <= 0xFF) {
+          str += String.fromCharCode(0x0410 + (b - 0xC0));
+        } else if (cp1251Map[b]) {
+          str += String.fromCharCode(cp1251Map[b]);
+        } else {
+          str += String.fromCharCode(b);
+        }
+      }
+      return str;
+    }
+
+    function readAndAddCsv(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const buffer = e.target.result;
+        const bytes = new Uint8Array(buffer);
+        let text = '';
+
+        // Проверяем: строгий UTF-8 без ошибок
+        try {
+          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+          text = utf8Decoder.decode(bytes);
+        } catch (utfErr) {
+          // Если файл в кодировке Windows-1251 (стандарт Excel в РФ)
+          try {
+            const cp1251Decoder = new TextDecoder('windows-1251');
+            text = cp1251Decoder.decode(bytes);
+          } catch (cpErr) {
+            text = decodeWindows1251(bytes);
+          }
+        }
+
+        // Страховка: если декодирование дало знаки вопроса-ромбики, принудительно берем CP1251
+        if (text.includes('\uFFFD')) {
+          try {
+            text = new TextDecoder('windows-1251').decode(bytes);
+          } catch (_) {
+            text = decodeWindows1251(bytes);
+          }
+        }
+
+        addTabSession(file.name, text);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ДРАГ-ЭНД-ДРОП ФАЙЛОВ
+    const dropArea = document.getElementById('dropArea');
+    const overlay = document.getElementById('dropzoneOverlay');
+
+    window.addEventListener('dragenter', (e) => { e.preventDefault(); overlay.classList.add('dragover'); });
+    overlay.addEventListener('dragleave', (e) => { e.preventDefault(); overlay.classList.remove('dragover'); });
+    overlay.addEventListener('dragover', (e) => { e.preventDefault(); });
+    overlay.addEventListener('drop', (e) => {
+      e.preventDefault();
+      overlay.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length) {
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          readAndAddCsv(e.dataTransfer.files[i]);
+        }
+      }
+    });
+
+    window.onload = () => {
+      initMap();
+      renderTabs();
+      renderActiveSession();
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,299 @@
+"""
+Веб-приложение для планирования маршрутов инженеров (Хакатон ЛЦТ 2026, Задача №3)
+Запуск: python3 app.py
+Открытие: http://localhost:8000
+"""
+
+import csv
+import io
+import json
+import os
+import sys
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+
+# Импортируем классы и алгоритм из нашего решателя
+import vrptw_4pass_solver as solver
+
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Обезличивание 2")
+
+
+def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float, float], str]:
+    """Парсит CSV из текста (формата датасетов кейса)."""
+    raw_rows = []
+    depot_address = ""
+    district_hint = ""
+
+    f = io.StringIO(csv_text.strip())
+    reader = csv.DictReader(f, delimiter=";")
+    for row in reader:
+        req_id = (row.get("Заявка") or "").strip()
+        if "адрес офис" in req_id.lower():
+            depot_address = (row.get("Тип заявки BK") or "").strip()
+            continue
+        if not req_id or not (row.get("Тип заявки BK") or "").strip():
+            continue
+        raw_rows.append(row)
+
+    requests: list[solver.Request] = []
+    for row in raw_rows:
+        bk_type = (row.get("Тип заявки BK") or "").strip()
+        req_type = solver.BK_TYPE_MAP.get(bk_type, "repair")
+        district = (row.get("Район") or "").strip()
+        address = (row.get("Адрес") or "").strip()
+        district_hint = district or district_hint
+
+        lat, lon = solver.geocode_district_cached(address, district)
+        w_start = solver.parse_minutes(row["Начало"])
+        w_end = solver.parse_minutes(row["Окончание"])
+        is_gigabit = (row.get("Гигабитное подключение") or "").strip() == "Да"
+        demand = 2 if (req_type == "emergency" or is_gigabit) else 1
+
+        requests.append(
+            solver.Request(
+                id=row["Заявка"],
+                lat=lat,
+                lon=lon,
+                req_type=req_type,
+                window_start_min=w_start,
+                window_end_min=w_end,
+                district=district,
+                address=address,
+                is_gigabit=is_gigabit,
+                equipment_demand=demand,
+            )
+        )
+
+    depot_coords = solver.DISTRICT_COORDS.get(district_hint, solver.MOSCOW_CENTER)
+    if "юных ленинцев" in depot_address.lower():
+        depot_coords = (55.7001, 37.7690)
+    elif "симферопольский" in depot_address.lower():
+        depot_coords = (55.6885, 37.6181)
+    elif "бирюлёвская" in depot_address.lower() or "бирюлевская" in depot_address.lower():
+        depot_coords = (55.5976, 37.6690)
+
+    return requests, depot_coords, depot_address
+
+
+def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, n_engineers: int = 11):
+    has_suburbs = any(r.district in ["Кашира", "Ступино", "Домодедово"] for r in requests)
+    engineers = solver.create_engineers_pool(n_engineers=n_engineers, depot_coords=depot_coords, has_suburbs=has_suburbs)
+
+    # 1. 4-Pass Optimizer
+    opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
+
+    # 2. Baseline FIFO
+    base_routes, base_dropped = solver.run_baseline_fifo(requests, engineers)
+
+    # Метрики
+    opt_assigned = sum(len(r.visits) for r in opt_routes)
+    base_assigned = sum(len(r.visits) for r in base_routes)
+
+    opt_km = round(sum(r.total_km for r in opt_routes), 1)
+    base_km = round(sum(r.total_km for r in base_routes), 1)
+
+    opt_staff = len(opt_routes)
+    base_staff = len(base_routes)
+
+    staff_gain = round(((base_staff - opt_staff) / base_staff * 100), 1) if base_staff > 0 else 0
+    km_gain = round(((base_km - opt_km) / base_km * 100), 1) if base_km > 0 else 0
+
+    # Сериализуемые маршруты
+    serialized_routes = []
+    colors = [
+        "#E6194B", "#3CBL58", "#FFE119", "#4363D8", "#F58231",
+        "#911EB4", "#42D4F4", "#F032E6", "#BFEF45", "#FABED4",
+        "#469990", "#DCBEFF", "#9A6324", "#FFFAC8", "#800000"
+    ]
+
+    for idx, r in enumerate(opt_routes):
+        eng = r.engineer
+        color = colors[idx % len(colors)]
+        visits_data = []
+        for step_idx, v in enumerate(r.visits, 1):
+            visits_data.append({
+                "step": step_idx,
+                "request_id": v.request.id,
+                "req_type": v.request.req_type,
+                "district": v.request.district,
+                "address": v.request.address,
+                "lat": v.request.lat,
+                "lon": v.request.lon,
+                "window_start": solver.fmt_time(v.request.window_start_min),
+                "window_end": solver.fmt_time(v.request.window_end_min),
+                "arrival": solver.fmt_time(v.arrival_min),
+                "work_start": solver.fmt_time(v.service_start_min),
+                "work_end": solver.fmt_time(v.service_end_min),
+                "work_duration": v.request.work_duration_min,
+                "travel_min": v.travel_min,
+                "travel_km": v.travel_km,
+                "is_gigabit": v.request.is_gigabit,
+                "demand": v.request.equipment_demand,
+                "explanation": solver.explain_visit(v, eng)
+            })
+
+        serialized_routes.append({
+            "engineer_id": eng.id,
+            "transport": eng.transport,
+            "color": color,
+            "home_lat": eng.home_lat,
+            "home_lon": eng.home_lon,
+            "shift_start": solver.fmt_time(eng.shift_start_min),
+            "shift_end": solver.fmt_time(eng.shift_end_min),
+            "skills": list(eng.skills),
+            "total_km": round(r.total_km, 1),
+            "total_travel_min": r.total_travel_min,
+            "visits_count": len(r.visits),
+            "visits": visits_data
+        })
+
+    serialized_dropped = []
+    for req in opt_dropped:
+        serialized_dropped.append({
+            "request_id": req.id,
+            "req_type": req.req_type,
+            "district": req.district,
+            "address": req.address,
+            "lat": req.lat,
+            "lon": req.lon,
+            "window_start": solver.fmt_time(req.window_start_min),
+            "window_end": solver.fmt_time(req.window_end_min),
+            "explanation": solver.explain_dropped(req, engineers)
+        })
+
+    return {
+        "depot": {
+            "address": depot_address or "Районный склад/офис",
+            "lat": depot_coords[0],
+            "lon": depot_coords[1]
+        },
+        "stats": {
+            "total_requests": len(requests),
+            "emergency_count": sum(1 for r in requests if r.req_type == "emergency"),
+            "connection_count": sum(1 for r in requests if r.req_type == "connection"),
+            "repair_count": sum(1 for r in requests if r.req_type == "repair"),
+            "extra_count": sum(1 for r in requests if r.req_type == "extra_order"),
+            "opt_staff": opt_staff,
+            "base_staff": base_staff,
+            "staff_gain": staff_gain,
+            "opt_km": opt_km,
+            "base_km": base_km,
+            "km_gain": km_gain,
+            "opt_assigned": opt_assigned,
+            "base_assigned": base_assigned,
+            "opt_dropped": len(opt_dropped),
+            "base_dropped": len(base_dropped),
+        },
+        "routes": serialized_routes,
+        "dropped": serialized_dropped
+    }
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/" or path == "/index.html":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+            with open(html_path, "rb") as f:
+                self.wfile.write(f.read())
+            return
+
+        if path == "/api/demo":
+            query = parse_qs(parsed.query)
+            region = query.get("region", ["vostok"])[0].lower()
+
+            target_file = None
+            if "vostok" in region or "восток" in region:
+                target_file = "Восток Синтетические данные.csv"
+            elif "yugocentr" in region or "югоцентр" in region or "yug" in region:
+                target_file = "Югоцентр Синтетические данные.csv"
+            elif "yugovostok" in region or "юго-восток" in region:
+                target_file = "Юго-восток Синтетические данные.csv"
+
+            if not target_file:
+                target_file = "Восток Синтетические данные.csv"
+
+            csv_path = os.path.join(DATA_DIR, target_file)
+            if not os.path.exists(csv_path):
+                self.send_error(404, f"Файл {target_file} не найден на диске")
+                return
+
+            requests, depot_coords, depot_addr = solver.load_dataset(csv_path)
+            res = run_full_pipeline(requests, depot_coords, depot_addr)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            return
+
+        self.send_error(404, "Not Found")
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/upload":
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_data = self.rfile.read(content_length)
+
+            # Пробуем декодировать utf-8, затем cp1251 (стандарт Excel в РФ)
+            csv_text = None
+            for enc in ["utf-8-sig", "utf-8", "cp1251"]:
+                try:
+                    dec = raw_data.decode(enc)
+                    if "\ufffd" not in dec:
+                        csv_text = dec
+                        break
+                except UnicodeDecodeError:
+                    continue
+
+            if not csv_text:
+                try:
+                    csv_text = raw_data.decode("cp1251", errors="replace")
+                except Exception:
+                    pass
+
+            if not csv_text:
+                self.send_error(400, "Не удалось распознать кодировку файла (требуется UTF-8 или CP1251)")
+                return
+
+            try:
+                requests, depot_coords, depot_addr = parse_csv_content(csv_text)
+                if not requests:
+                    self.send_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
+                    return
+                res = run_full_pipeline(requests, depot_coords, depot_addr)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            except Exception as e:
+                self.send_error(500, f"Ошибка обработки: {str(e)}")
+            return
+
+        self.send_error(404, "Not Found")
+
+
+def run_server(port=8000):
+    server = HTTPServer(("127.0.0.1", port), Handler)
+    print(f"\n=======================================================")
+    print(f"  ВЕБ-СЕРВИС ПЛАНИРОВАНИЯ МАРШРУТОВ ИНЖЕНЕРОВ ЗАПУЩЕН")
+    print(f"  Откройте браузер: http://localhost:{port}")
+    print(f"=======================================================\n")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nСервер остановлен.")
+        server.server_close()
+
+
+if __name__ == "__main__":
+    p = 8000
+    if len(sys.argv) > 1 and sys.argv[1].isdigit():
+        p = int(sys.argv[1])
+    run_server(p)
