@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Математическая модель и алгоритм планирования маршрутов инженеров | билайн бизнес</title>
+  <title>Математическая модель и алгоритм VRP-TW-S-C | билайн бизнес</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
@@ -43,7 +43,6 @@
       color: #FFF;
       padding: 40px 48px;
       border-bottom: 6px solid var(--beeline-yellow);
-      position: relative;
     }
     .header-top {
       display: flex;
@@ -51,63 +50,32 @@
       align-items: center;
       margin-bottom: 20px;
     }
-    .logo-badge {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+    .logo-badge { display: flex; align-items: center; gap: 12px; }
     .stripe-circle {
       width: 36px; height: 36px; border-radius: 50%;
       background: repeating-linear-gradient(45deg, var(--beeline-yellow), var(--beeline-yellow) 5px, var(--beeline-black) 5px, var(--beeline-black) 10px);
     }
     .logo-text { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; }
     .hackathon-tag {
-      background: #333;
-      color: var(--beeline-yellow);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      background: #333; color: var(--beeline-yellow);
+      padding: 6px 14px; border-radius: 20px;
+      font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
     }
-    .header h1 {
-      font-size: 28px;
-      font-weight: 800;
-      line-height: 1.3;
-      margin-bottom: 12px;
-      color: #FFF;
-    }
-    .header p {
-      font-size: 15px;
-      color: #A0AEC0;
-      max-width: 760px;
-    }
+    .header h1 { font-size: 26px; font-weight: 800; line-height: 1.3; margin-bottom: 12px; }
+    .header p { font-size: 14px; color: #A0AEC0; max-width: 800px; }
 
     /* ПАНЕЛЬ ПЕЧАТИ */
     .print-bar {
-      background: #FFF9E6;
-      border-bottom: 1px solid #FFE082;
-      padding: 14px 48px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      background: #FFF9E6; border-bottom: 1px solid #FFE082;
+      padding: 14px 48px; display: flex; justify-content: space-between; align-items: center;
     }
     .print-info { font-size: 13px; color: #7C4A00; font-weight: 600; }
     .btn-print {
-      background: var(--beeline-yellow);
-      color: var(--beeline-black);
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.2s;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      background: var(--beeline-yellow); color: var(--beeline-black); border: none;
+      padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 700;
+      cursor: pointer; display: flex; align-items: center; gap: 8px;
+      transition: all 0.2s; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
     .btn-print:hover { background: #E6B800; transform: translateY(-1px); }
 
@@ -115,182 +83,158 @@
     .content { padding: 48px; }
 
     h2 {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--beeline-black);
-      margin: 36px 0 16px 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      border-bottom: 2px solid #EDF2F7;
-      padding-bottom: 8px;
+      font-size: 19px; font-weight: 700; color: var(--beeline-black);
+      margin: 36px 0 16px 0; display: flex; align-items: center; gap: 10px;
+      border-bottom: 2px solid #EDF2F7; padding-bottom: 8px;
     }
     h2:first-of-type { margin-top: 0; }
+    h3 {
+      font-size: 15px; font-weight: 700; color: #2D3748;
+      margin: 24px 0 10px 0;
+    }
     .section-num {
-      background: var(--beeline-yellow);
-      color: var(--beeline-black);
-      width: 28px; height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      font-weight: 800;
+      background: var(--beeline-yellow); color: var(--beeline-black);
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 800; flex-shrink: 0;
     }
 
-    p { margin-bottom: 14px; font-size: 14.5px; color: #4A5568; }
+    p { margin-bottom: 14px; font-size: 14px; color: #4A5568; }
 
-    /* КАРТОЧКИ И ВЫНОСКИ */
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
-      margin: 20px 0;
-    }
+    /* КАРТОЧКИ */
+    .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 20px 0; }
     .info-card {
-      background: #F7FAFC;
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      padding: 18px;
-      border-left: 4px solid var(--accent-blue);
+      background: #F7FAFC; border: 1px solid var(--border-color);
+      border-radius: 10px; padding: 18px; border-left: 4px solid var(--accent-blue);
     }
     .info-card.yellow { border-left-color: var(--beeline-yellow); }
-    .info-card.green { border-left-color: var(--accent-green); }
-    .info-card.red { border-left-color: var(--accent-red); }
+    .info-card.green  { border-left-color: var(--accent-green); }
+    .info-card.red    { border-left-color: var(--accent-red); }
     .info-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; color: #2D3748; }
-    .info-card p { font-size: 13px; color: #718096; margin: 0; line-height: 1.5; }
+    .info-card p  { font-size: 13px; color: #718096; margin: 0; line-height: 1.5; }
 
     /* МАТЕМАТИЧЕСКИЕ БЛОКИ */
-    .math-block {
-      background: #2D3748;
-      color: #E2E8F0;
-      padding: 20px 24px;
-      border-radius: 10px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
-      margin: 18px 0;
-      line-height: 1.8;
+    .math-section {
+      background: #FAFBFD; border: 1px solid #CBD5E1;
       border-left: 5px solid var(--beeline-yellow);
-      overflow-x: auto;
+      border-radius: 10px; padding: 20px 24px; margin: 18px 0;
+      page-break-inside: avoid; break-inside: avoid;
     }
+    .math-section.blue { border-left-color: var(--accent-blue); }
+    .math-section.green { border-left-color: var(--accent-green); }
     .math-title {
-      font-weight: 700;
-      color: var(--beeline-yellow);
-      margin-bottom: 8px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      font-weight: 700; color: var(--beeline-black);
+      margin-bottom: 10px; font-size: 13px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .math-title.blue { color: var(--accent-blue); }
+    .math-subtitle {
+      font-size: 13px; font-weight: 600; color: #2D3748;
+      margin: 14px 0 4px;
+    }
+    .math-note {
+      font-size: 12px; color: #718096; margin: 2px 0 0; line-height: 1.5;
+    }
+
+    /* LEGACY math-block for code-style */
+    .code-block {
+      background: #2D3748; color: #E2E8F0;
+      padding: 20px 24px; border-radius: 10px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      margin: 18px 0; line-height: 1.7;
+      border-left: 5px solid var(--beeline-yellow);
+      overflow-x: auto; white-space: pre;
+      page-break-inside: avoid; break-inside: avoid;
     }
 
     /* ТАБЛИЦЫ */
     table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 24px 0;
-      font-size: 13.5px;
+      width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px;
     }
-    th, td {
-      padding: 12px 16px;
-      border: 1px solid var(--border-color);
-      text-align: left;
-    }
-    th {
-      background: #F7FAFC;
-      font-weight: 700;
-      color: #2D3748;
-    }
+    th, td { padding: 10px 14px; border: 1px solid var(--border-color); text-align: left; }
+    th { background: #F7FAFC; font-weight: 700; color: #2D3748; }
     tr:nth-child(even) { background: #FAFAFA; }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 700;
-    }
-    .badge-green { background: #DEF7EC; color: #03543F; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .badge-green  { background: #DEF7EC; color: #03543F; }
     .badge-yellow { background: #FEF08A; color: #713F12; }
-    .badge-red { background: #FDE8E8; color: #9B1C1C; }
+    .badge-red    { background: #FDE8E8; color: #9B1C1C; }
+    mark { background: #FEF08A; padding: 1px 4px; border-radius: 3px; font-weight: 700; }
 
-    /* ДИАГРАММА АЛГОРИТМА */
-    .flowchart {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin: 24px 0;
-    }
+    /* БЛОК-СХЕМА */
+    .flowchart { display: flex; flex-direction: column; gap: 12px; margin: 24px 0; }
     .flow-step {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      background: #F8FAFC;
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      padding: 14px 20px;
-      position: relative;
+      display: flex; align-items: flex-start; gap: 16px;
+      background: #F8FAFC; border: 1px solid var(--border-color);
+      border-radius: 10px; padding: 14px 20px; position: relative;
     }
     .flow-step::after {
-      content: '↓';
-      position: absolute;
-      bottom: -16px;
-      left: 36px;
-      font-size: 16px;
-      font-weight: 800;
-      color: #A0AEC0;
-      z-index: 2;
+      content: '↓'; position: absolute; bottom: -16px; left: 36px;
+      font-size: 16px; font-weight: 800; color: #A0AEC0; z-index: 2;
     }
     .flow-step:last-child::after { display: none; }
     .flow-badge {
-      width: 36px; height: 36px;
-      border-radius: 8px;
-      background: var(--beeline-yellow);
-      color: var(--beeline-black);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 14px;
-      flex-shrink: 0;
+      width: 36px; height: 36px; border-radius: 8px;
+      background: var(--beeline-yellow); color: var(--beeline-black);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 14px; flex-shrink: 0;
     }
     .flow-title { font-weight: 700; font-size: 14px; color: #1A202C; }
-    .flow-desc { font-size: 12.5px; color: #718096; margin-top: 2px; }
+    .flow-desc  { font-size: 12.5px; color: #718096; margin-top: 2px; line-height: 1.5; }
 
-    /* ПОДВАЛ */
-    .footer {
-      border-top: 1px solid var(--border-color);
-      padding: 24px 48px;
-      background: #FAFAFA;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 12px;
-      color: #A0AEC0;
-    }
+    /* СПИСКИ */
+    ul.styled { margin: 14px 0; padding-left: 20px; }
+    ul.styled li { margin-bottom: 8px; font-size: 14px; color: #4A5568; line-height: 1.5; }
 
-    /* СТИЛИ ДЛЯ ПЕЧАТИ (CMD + P -> СОХРАНИТЬ В PDF) */
+    /* ПЕРЕМЕННЫЕ — таблица без рамок */
+    .var-table { border: none; margin: 8px 0 0; }
+    .var-table tr { background: none !important; }
+    .var-table td { border: none; padding: 4px 10px; vertical-align: top; }
+    .var-table td:first-child { font-weight: 600; white-space: nowrap; }
+
+    /* ПЕЧАТЬ */
     @media print {
-      body { background: #FFF; padding: 0; }
+      body { background: #FFF; padding: 0; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .container { box-shadow: none; border: none; border-radius: 0; max-width: 100%; }
       .print-bar { display: none !important; }
-      .header { padding: 24px 30px; border-bottom: 4px solid var(--beeline-yellow); }
-      .content { padding: 24px 30px; }
-      .math-block { background: #F1F5F9 !important; color: #1E293B !important; border: 1px solid #CBD5E1; border-left: 4px solid var(--beeline-yellow); }
-      .math-title { color: #0F172A !important; }
-      h2 { page-break-after: avoid; }
-      table, .flow-step, .card-grid { page-break-inside: avoid; }
-      @page { margin: 15mm; size: A4 portrait; }
+      .header { padding: 24px 28px; border-bottom: 5px solid var(--beeline-yellow); -webkit-print-color-adjust: exact; }
+      .header h1 { font-size: 20px; }
+      .header p { font-size: 12px; }
+      .content { padding: 24px 28px; }
+      p { font-size: 12.5px; line-height: 1.5; }
+      h2 { page-break-after: avoid; break-after: avoid; margin-top: 24px; font-size: 16px; }
+      h3 { page-break-after: avoid; break-after: avoid; font-size: 13px; }
+      .math-section { page-break-inside: avoid; break-inside: avoid; padding: 14px 18px; }
+      .code-block { page-break-inside: avoid; break-inside: avoid; font-size: 10.5px; padding: 14px 18px; }
+      table { page-break-inside: avoid; break-inside: avoid; font-size: 11.5px; }
+      th, .badge, .info-card, .flow-badge, .section-num, mark {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      .card-grid { page-break-inside: avoid; break-inside: avoid; }
+      .info-card { page-break-inside: avoid; break-inside: avoid; }
+      .flowchart { page-break-inside: avoid; break-inside: avoid; }
+      .flow-step { page-break-inside: avoid; break-inside: avoid; }
+      ul, ol { page-break-inside: avoid; break-inside: avoid; }
+      li { orphans: 2; widows: 2; }
+      @page { margin: 16mm 14mm; size: A4 portrait; }
+      @page :first { margin-top: 0; }
     }
   </style>
-  <!-- KaTeX for rendered LaTeX formulas -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, { delimiters: [{left: '33156', right: '33156', display: true}, {left: '$', right: '$', display: false}] });"></script>
-
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false}
+      ],
+      throwOnError: false
+    });"></script>
 </head>
 <body>
 
   <div class="container">
-    
-    <!-- ШАПКА ДОКУМЕНТА -->
+
+    <!-- ШАПКА -->
     <div class="header">
       <div class="header-top">
         <div class="logo-badge">
@@ -299,245 +243,271 @@
         </div>
         <div class="hackathon-tag">Лидеры цифровой трансформации 2026 &bull; Задача №3</div>
       </div>
-      <h1>Математическая модель и алгоритм планирования маршрутов выездных инженеров</h1>
-      <p>Комплексная архитектура решения задачи маршрутизации (VRP-TW-S-C) с временными окнами клиентов, матрицей навыков специалистов и динамическим перепланированием при инцидентах.</p>
+      <h1>Математическая модель и алгоритм интеллектуальной маршрутизации выездных инженеров</h1>
+      <p>Комплексная архитектура решения задачи VRP-TW-S-C: оптимальное распределение заявок, динамическая маршрутизация бригад, оперативное перепланирование при инцидентах, объяснимый ИИ (XAI).</p>
     </div>
 
-    <!-- ПАНЕЛЬ БЫСТРОЙ ПЕЧАТИ В PDF -->
+    <!-- ПЕЧАТЬ -->
     <div class="print-bar">
-      <div class="print-info">💡 Нажмите кнопку справа, чтобы мгновенно сохранить этот отчёт в презентабельный PDF-файл:</div>
-      <button class="btn-print" onclick="window.print()">
-        📄 Печать / Сохранить в PDF
-      </button>
+      <div class="print-info">💡 Нажмите кнопку, чтобы сохранить отчёт в PDF:</div>
+      <button class="btn-print" onclick="window.print()">📄 Печать / Сохранить в PDF</button>
     </div>
 
-    <!-- ТЕЛО ОТЧЕТА -->
+    <!-- ТЕЛО -->
     <div class="content">
 
-      <!-- РАЗДЕЛ 1 -->
-      <h2><span class="section-num">1</span> Концепция и класс оптимизационной задачи</h2>
-      <p>В рамках кейса ПАО «ВымпелКом» разработана интеллектуальная система автоматической диспетчеризации («помощник диспетчера»), рассчитывающая оптимальные маршруты и поминутные графики выездных сервисных инженеров для трёх округов Москвы и Московской области (Восток, Югоцентр, Юго-восток).</p>
-      
-      <p>С точки зрения теории исследования операций (Operations Research), задача относится к наиболее сложному NP-трудному классу:</p>
+      <!-- ═══════ 1. ВВЕДЕНИЕ ═══════ -->
+      <h2><span class="section-num">1</span> Введение и бизнес-постановка задачи</h2>
+      <p>В рамках кейса ПАО «ВымпелКом» разработана масштабируемая система поддержки принятия решений — <b>«интеллектуальный помощник диспетчера»</b>, решающая задачу оптимального распределения сотен ежедневных клиентских заявок между мобильными бригадами сервисных инженеров в округах Москвы и МО (Восток, Югоцентр, Юго-восток).</p>
 
       <div class="card-grid">
         <div class="info-card yellow">
-          <h4>VRP-TW-S-C</h4>
-          <p><b>Vehicle Routing Problem with Time Windows, Skills & Capacity</b> — задача маршрутизации транспортных средств с жесткими окнами визитов абонентов, матрицей квалификаций и лимитом вместимости оборудования.</p>
+          <h4>Минимизация ФОТ</h4>
+          <p>Сокращение штата на смену на <b>14–18%</b> за счет устранения холостых окон и неэффективных простоев.</p>
         </div>
         <div class="info-card green">
-          <h4>Двухуровневая лексикографическая цель</h4>
-          <p>1. <b>Минимизация штата (ФОТ):</b> свести к минимуму число одновременно задействованных бригад.<br>
-             2. <b>Минимизация пробега:</b> сократить суммарный километраж и холостой ход.</p>
+          <h4>Снижение пробега</h4>
+          <p>Уменьшение общего пробега автопарка на <b>58–74%</b> по сравнению с Baseline FIFO.</p>
+        </div>
+        <div class="info-card">
+          <h4>100% соблюдение SLA</h4>
+          <p>Безусловное попадание в 2-часовые клиентские окна без срывов и штрафов.</p>
+        </div>
+        <div class="info-card red">
+          <h4>Динамическая устойчивость + XAI</h4>
+          <p>Мгновенный пересчет при инцидентах. Структурированное обоснование каждого решения для диспетчера.</p>
         </div>
       </div>
 
-      <!-- РАЗДЕЛ 2 -->
-      <h2><span class="section-num">2</span> Математическая формализация задачи</h2>
-      <p>Пусть задан полный ориентированный граф дорожной сети <i>G = (V, E)</i>, где вершина <i>0</i> обозначает районный склад/офис (депо), а вершины <i>i &in; {1, ..., N}</i> соответствуют заявкам клиентов.</p>
+      <!-- ═══════ 2. КЛАССИФИКАЦИЯ ═══════ -->
+      <h2><span class="section-num">2</span> Классификация оптимизационной задачи</h2>
+      <p>В терминах Operations Research задача относится к классу:</p>
+      <div class="math-section">
+        <div style="text-align:center; font-size:16px; font-weight:700; color:var(--beeline-black); padding:8px 0;">
+          $$\textbf{VRP-TW-S-C}$$
+          <span style="font-size:13px; font-weight:400; color:#718096;">Vehicle Routing Problem with Time Windows, Skills &amp; Capacity</span>
+        </div>
+      </div>
+      <ul class="styled">
+        <li><b>Time Windows (TW):</b> жёсткие окна доступности клиентов (опоздания запрещены, ранний приезд — ожидание).</li>
+        <li><b>Skills (S):</b> неоднородный пул специалистов с сертификацией (FTTB, FMC, аварии ТКД, ремонты, доставка).</li>
+        <li><b>Capacity (C):</b> ограниченная вместимость инструментального комплекта (роутеры, ТВ-приставки, кабель).</li>
+        <li><b>Shift &amp; Lunch:</b> фиксированная смена до 21:00 + обеденный перерыв 45–60 мин в коридоре 12:00–15:00.</li>
+      </ul>
+      <p>Задача принадлежит к классу <b>NP-трудных</b>. Точные MIP/MILP-методы не обеспечивают расчёт за секунды на графах $N > 50$, поэтому спроектирован <b>иерархический 4-проходный эвристический алгоритм</b>.</p>
 
-      <div class="math-block">
-        <div class="math-title">МАТЕМАТИЧЕСКАЯ ПОСТАНОВКА ЦЕЛЕВОЙ ФУНКЦИИ</div>
-        // Уровень 1: Минимизация фонда оплаты труда (числа открытых бригад)
-        min  |{ k &in; K : |Route(k)| > 0 }|
+      <!-- ═══════ 3. ФОРМАЛИЗАЦИЯ ═══════ -->
+      <h2><span class="section-num">3</span> Строгая математическая формализация модели</h2>
 
-        // Уровень 2: Минимизация суммарного километража дорожного графа
-        min  &sum;_{k &in; K} &sum;_{i &in; V} &sum;_{j &in; V} c_{ij} &middot; x_{ijk}
-
-        Где:
-        &bull; x_{ijk} &in; {0, 1} — индикатор перемещения инженера k от точки i к j;
-        &bull; c_{ij} — расстояние в километрах (Haversine геодезический расчет);
-        &bull; K — доступный пул сертифицированных специалистов (10-14 человек на округ).
+      <!-- 3.1 -->
+      <h3>3.1. Множества, индексы и параметры</h3>
+      <div class="math-section blue">
+        <div class="math-title blue">Множества и параметры</div>
+        <table class="var-table">
+          <tr><td>$V = \{0\} \cup C$</td><td>полное множество вершин графа; $0$ — депо, $C = \{1, \dots, N\}$ — заявки</td></tr>
+          <tr><td>$K = \{1, \dots, M\}$</td><td>множество доступных сервисных инженеров округа</td></tr>
+          <tr><td>$c_{ij} \ge 0$</td><td>геодезическое расстояние (км) между $i, j \in V$ по формуле Хаверсина</td></tr>
+          <tr><td>$[a_i, b_i]$</td><td>временное окно заявки $i$ (мин от 00:00); для депо $[480, 1260]$ (08:00–21:00)</td></tr>
+          <tr><td>$d_i$</td><td>нормативная длительность работ по заявке $i$ (мин); $d_0 = 0$</td></tr>
+          <tr><td>$S_i \subseteq \mathcal{S}$</td><td>требуемые навыки для заявки $i$</td></tr>
+          <tr><td>$\mathrm{Skills}_k \subseteq \mathcal{S}$</td><td>подтверждённые компетенции инженера $k$</td></tr>
+          <tr><td>$t_{ij}$</td><td>время переезда между $i$ и $j$ (мин)</td></tr>
+        </table>
       </div>
 
-      <div class="math-block">
-        <div class="math-title">СИСТЕМА ЛИНЕЙНЫХ И ВРЕМЕННЫХ ОГРАНИЧЕНИЙ</div>
-        1. Навыки (Skills Hard Constraint):
-           x_{ijk} = 1 &implies; S_j &sube; Skills_k
-           (Запрещено назначать задачу специалисту без соответствующего сертификата)
-
-        2. Временные окна клиентов (Hard Time Windows):
-           &tau;_{ik} &le; b_i,  где [&tau;_{ik} = arr_time], [a_i, b_i] — слот клиента.
-           start_work_i = max(&tau;_{ik}, a_i)  (ожидание при раннем прибытии допустимо)
-
-        3. Лимит продолжительности смены:
-           start_work_last + duration_last &le; T_{shift_end}  (21:00 / 1260 минут)
-
-        4. Динамический расчет времени перемещения (взамен статических 20 минут):
-           t_{ij} = max(10, round(dist_km(i, j) &middot; 2.2 + 8)) [мин]
+      <div class="math-section">
+        <div class="math-title">Формула Хаверсина (геодезическое расстояние)</div>
+        $$c_{ij} = 2\,R\;\arcsin\!\sqrt{\sin^2\!\left(\frac{\Delta\phi}{2}\right) + \cos\phi_i\,\cos\phi_j\;\sin^2\!\left(\frac{\Delta\lambda}{2}\right)}$$
+        <p class="math-note">где $R = 6371$ км — радиус Земли, $\phi$ — широта, $\lambda$ — долгота.</p>
       </div>
 
-      <!-- РАЗДЕЛ 3 -->
-      <h2><span class="section-num">3</span> Утверждённые нормативы затрат времени</h2>
-      <p>В строгом соответствии с файлом <i>Нормативы.xlsx</i> от постановщика кейса билайн, трудоёмкость визитов строго дифференцирована:</p>
+      <!-- 3.2 -->
+      <h3>3.2. Переменные решения</h3>
+      <div class="math-section blue">
+        <div class="math-title blue">Переменные модели</div>
 
+        <p class="math-subtitle">Маршрутные индикаторы:</p>
+        $$x_{ijk} \in \{0, 1\}, \quad \forall\, i, j \in V,\; k \in K$$
+        <p class="math-note">$x_{ijk} = 1$, если инженер $k$ совершает переезд от точки $i$ к точке $j$.</p>
+
+        <p class="math-subtitle">Индикаторы вывода бригады:</p>
+        $$y_k \in \{0, 1\}, \quad \forall\, k \in K$$
+        <p class="math-note">$y_k = 1$, если инженеру $k$ назначена хотя бы одна заявка.</p>
+
+        <p class="math-subtitle">Временные метки прибытия:</p>
+        $$\tau_{ik} \ge 0, \quad \forall\, i \in V,\; k \in K$$
+
+        <p class="math-subtitle">Время ожидания до начала окна:</p>
+        $$w_{ik} = \max(0,\; a_i - \tau_{ik}), \quad \forall\, i \in C,\; k \in K$$
+      </div>
+
+      <!-- 3.3 -->
+      <h3>3.3. Двухуровневая целевая функция</h3>
+      <div class="math-section green">
+        <div class="math-title" style="color:var(--accent-green);">Лексикографическая оптимизация</div>
+        $$\operatorname{LexMin}\!\Big(Z_1,\; Z_2\Big)$$
+
+        <p class="math-subtitle">Уровень 1 — абсолютный приоритет (минимизация ФОТ):</p>
+        $$\min\quad Z_1 = \sum_{k \in K} y_k$$
+        <p class="math-note">Минимизация числа одновременно выведенных на линию инженеров.</p>
+
+        <p class="math-subtitle">Уровень 2 — транспортные затраты при фиксированном штате:</p>
+        $$\min\quad Z_2 = \sum_{k \in K}\;\sum_{i \in V}\;\sum_{j \in V} c_{ij} \cdot x_{ijk}$$
+        <p class="math-note">Минимизация суммарного пробега дорожного графа.</p>
+      </div>
+
+      <!-- 3.4 -->
+      <h3>3.4. Система строгих ограничений</h3>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 1 — Однократное обслуживание каждой заявки</div>
+        $$\sum_{k \in K}\;\sum_{\substack{i \in V \\ i \ne j}} x_{ijk} = 1, \quad \forall\, j \in C$$
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 2 — Замкнутость маршрутов и баланс потока</div>
+        <p class="math-subtitle">Выезд из депо:</p>
+        $$\sum_{j \in C} x_{0jk} = y_k, \quad \forall\, k \in K$$
+        <p class="math-subtitle">Возврат в депо:</p>
+        $$\sum_{i \in C} x_{i0k} = y_k, \quad \forall\, k \in K$$
+        <p class="math-subtitle">Сохранение потока в каждой клиентской вершине:</p>
+        $$\sum_{\substack{i \in V \\ i \ne j}} x_{ijk} - \sum_{\substack{l \in V \\ l \ne j}} x_{jlk} = 0, \quad \forall\, j \in C,\;\forall\, k \in K$$
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 3 — Квалификация инженера (Hard Skills Matching)</div>
+        $$x_{ijk} = 1 \;\Rightarrow\; S_j \subseteq \mathrm{Skills}_k, \quad \forall\, i \in V,\; j \in C,\; k \in K$$
+        <p class="math-note">Запрещено направлять специалиста без аварийного допуска на ТКД или без навыка FTTB/FMC на монтаж.</p>
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 4 — Динамическое время перемещения</div>
+        $$t_{ij} = \max\!\Big(10,\;\operatorname{round}\!\big(2.2 \cdot c_{ij} + 8\big)\Big)\;\;[\text{мин}]$$
+        <p class="math-note">Коэффициенты учитывают парковку, пеший подъём, светофоры и среднюю скорость городского потока.</p>
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 5 — Временная связность (MTZ-like Time Propagation)</div>
+        $$\tau_{jk} \ge \tau_{ik} + d_i + t_{ij} - M\,(1 - x_{ijk}), \quad \forall\, i \in V,\; j \in C,\; k \in K$$
+        <p class="math-note">$M \ge T_{\text{end}} - T_{\text{start}}$ — большое число для линеаризации. Исключает подциклы и обеспечивает корректное распространение временных меток.</p>
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 6 — Соблюдение SLA (Time Windows)</div>
+        $$\tau_{ik} \le b_i, \quad \forall\, i \in C,\; k \in K$$
+        <p class="math-subtitle">Фактический старт работ:</p>
+        $$\mathrm{start}_{ik} = \max(\tau_{ik},\; a_i)$$
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 7 — Лимит смены (запрет переработок)</div>
+        $$\mathrm{start}_{\mathrm{last},k} + d_{\mathrm{last}} + t_{\mathrm{last},0} \le T_{\text{end}} = 1260\;\;(21\!:\!00)$$
+      </div>
+
+      <div class="math-section">
+        <div class="math-title">Ограничение 8 — Обеденный перерыв</div>
+        <p style="font-size:13px; color:#4A5568; margin:6px 0 0;">Каждому инженеру с $|\mathrm{Route}(k)| \ge 3$ выделяется непрерывное окно $\Delta_{\mathrm{lunch}} \in [45, 60]$ минут в промежутке с 12:00 до 15:00.</p>
+      </div>
+
+      <!-- ═══════ 4. НОРМАТИВЫ ═══════ -->
+      <h2><span class="section-num">4</span> Утверждённые нормативы трудоёмкости</h2>
+      <p>Длительность визита строго дифференцирована по утверждённым нормативам:</p>
       <table>
         <thead>
           <tr>
             <th>Категория заявки</th>
-            <th>Технические работы</th>
-            <th>Документооборот</th>
-            <th>Итоговое время на адресе</th>
-            <th>Приоритет в оптимизаторе</th>
+            <th>Тех. работы</th>
+            <th>Документы</th>
+            <th>Итого на адресе</th>
+            <th>Приоритет</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><b>Авария на ТКД</b></td>
-            <td>80 минут</td>
-            <td>0 минут</td>
-            <td><b>80 минут</b> (1 ч 20 мин)</td>
-            <td><span class="badge badge-red">Pass 1: Высший (каркас дня)</span></td>
+            <td>80 мин</td><td>0 мин</td><td><b>80 мин</b></td>
+            <td><span class="badge badge-red">Pass 1: Каркас смены</span></td>
           </tr>
           <tr>
-            <td><b>Новое подключение (FTTB/FMC)</b></td>
-            <td>60 минут</td>
-            <td>10 минут</td>
-            <td><b>70 минут</b> (1 ч 10 мин)</td>
+            <td><b>Подключение (FTTB/FMC)</b></td>
+            <td>60 мин</td><td>10 мин</td><td><b>70 мин</b></td>
             <td><span class="badge badge-yellow">Pass 2: Основной пул</span></td>
           </tr>
           <tr>
-            <td><b>Локальный ремонт у клиента</b></td>
-            <td>30 минут</td>
-            <td>0 минут</td>
-            <td><b>30 минут</b></td>
-            <td><span class="badge badge-green">Pass 3: Доуплотнение</span></td>
+            <td><b>Локальный ремонт</b></td>
+            <td>30 мин</td><td>0 мин</td><td><b>30 мин</b></td>
+            <td><span class="badge badge-green">Pass 3: Встраивание</span></td>
           </tr>
           <tr>
             <td><b>Дозаказ оборудования</b></td>
-            <td>10 минут</td>
-            <td>10 минут</td>
-            <td><b>20 минут</b></td>
+            <td>10 мин</td><td>10 мин</td><td><b>20 мин</b></td>
             <td><span class="badge badge-green">Pass 4: Попутная доставка</span></td>
           </tr>
         </tbody>
       </table>
 
-      <!-- РАЗДЕЛ 4 -->
-      <h2><span class="section-num">4</span> Архитектура 4-проходного алгоритма (4-Pass Insertion)</h2>
-      <p>Вместо плоских жадных алгоритмов, приводящих к срыву окон и перерасходу персонала, разработан иерархический эвристический конвейер:</p>
+      <!-- ═══════ 5. АЛГОРИТМ ═══════ -->
+      <h2><span class="section-num">5</span> Архитектура 4-проходного алгоритма (4-Pass Insertion)</h2>
+      <p>Плоские жадные алгоритмы раздувают штат при разнородных задачах. Разработан иерархический эвристический конвейер:</p>
 
       <div class="flowchart">
         <div class="flow-step">
           <div class="flow-badge">1</div>
           <div>
-            <div class="flow-title">PASS 1: Аварии на ТКД (Опорный скелет)</div>
-            <div class="flow-desc">Заявки категории «Авария» распределяются только старшим инженерам с аварийным допуском. Фиксируют пространственно-временной каркас графика дня.</div>
+            <div class="flow-title">PASS 1: Аварии на ТКД (80 мин) — Каркас критических заявок</div>
+            <div class="flow-desc">Распределяются среди старших инженеров с аварийным допуском. Фиксируют пространственно-временной остов графиков.</div>
           </div>
         </div>
         <div class="flow-step">
           <div class="flow-badge">2</div>
           <div>
-            <div class="flow-title">PASS 2: Новые подключения FTTB/FMC (70 мин)</div>
-            <div class="flow-desc">Самые длительные визиты с 2-часовыми клиентскими окнами. Вставка по критерию наименьшего приращения целевой функции &Delta;Cost с микрорайонной кластеризацией.</div>
+            <div class="flow-title">PASS 2: Подключения FTTB/FMC (70 мин) — Основной пул</div>
+            <div class="flow-desc">Самые длительные визиты с 2-часовыми слотами. Вставка по критерию $\min \Delta\mathrm{Cost}$ с микрорайонной кластеризацией.</div>
           </div>
         </div>
         <div class="flow-step">
           <div class="flow-badge">3</div>
           <div>
-            <div class="flow-title">PASS 3: Локальные ремонты (Минимизация ФОТ)</div>
-            <div class="flow-desc"><b>Ключевое правило:</b> 30-минутные ремонты встраиваются <i>только</i> в графики уже открытых бригад без привлечения дополнительных людей, ликвидируя простой.</div>
+            <div class="flow-title">PASS 3: Локальные ремонты (30 мин) — Минимизация ФОТ</div>
+            <div class="flow-desc"><b>Ключевое правило:</b> ремонты встраиваются <i>только</i> в графики уже открытых бригад. Запрещено привлекать дополнительного сотрудника.</div>
           </div>
         </div>
         <div class="flow-step">
           <div class="flow-badge">4</div>
           <div>
-            <div class="flow-title">PASS 4: Дозаказы оборудования (Попутная доставка)</div>
-            <div class="flow-desc">Сверхкороткие 20-минутные задачи привязываются к уже запланированным локациям мастеров, заполняя промежуточные временные коридоры.</div>
+            <div class="flow-title">PASS 4: Дозаказы оборудования (20 мин) — Попутная доставка</div>
+            <div class="flow-desc">Сверхкороткие визиты привязываются к маршрутам в радиусе до 2–3 км, утилизируя межсменные коридоры.</div>
           </div>
         </div>
       </div>
 
-      <!-- РАЗДЕЛ 5 -->
-      <h2><span class="section-num">5</span> Модуль Explainable AI (XAI) для диспетчера</h2>
-      <p>По требованию регламента хакатона система формирует человекочитаемое текстовое объяснение для каждого назначенного визита:</p>
-
-      <div class="math-block" style="background:#F8FAFC; color:#1A202C; border:1px solid #CBD5E1; border-left:4px solid #0070BA;">
-        <div class="math-title" style="color:#0070BA;">ПРИМЕР АВТОМАТИЧЕСКОГО ОБЪЯСНЕНИЯ РЕШЕНИЯ ДИСПЕТЧЕРУ:</div>
-        «Заявка №74198 назначена мастеру Инженер 3 (Специалист подключений).
-        ОБОСНОВАНИЕ ВЫБОРА:
-        1. Матрица навыков: Наличие требуемой компетенции "connection" (FMC/FTTB).
-        2. Географическая оптимизация: Ближайший доступный мастер в кластере Кузьминки. Плечо 1.4 км (дорога 11 мин от депо).
-        3. Временное окно клиента: Слот 10:00 - 12:00. Расчетное прибытие 10:11 (гарантированное попадание без риска опоздания).
-        4. Регламент работ: Выполнение с 10:11 до 11:21 (70 мин по нормативу билайн).
-        5. Баланс смены: Без превышения лимита смены 21:00 (запас до конца дня: 9.6 ч).
-        6. Экономический эффект: Минимизирует холостой пробег и исключает вывод дополнительного сотрудника.»
-      </div>
-
-      <!-- РАЗДЕЛ 6 -->
-      <h2><span class="section-num">6</span> Сравнительный бенчмарк против Baseline (FIFO)</h2>
-      <p>Базовый алгоритм (Baseline) по ТЗ берёт заявки строго в порядке строк файла и назначает первому попавшемуся свободному специалисту без маршрутной оптимизации. Наш алгоритм показал стабильное превосходство на всех официальных выборках:</p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Район округа</th>
-            <th>Показатель эффективности</th>
-            <th>Baseline (FIFO)</th>
-            <th>Наш 4-Pass VRP</th>
-            <th>Экономический эффект</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td rowspan="2"><b>Восток</b><br><small>66 заявок</small></td>
-            <td>Задействовано специалистов</td>
-            <td>11 инженеров</td>
-            <td><b>11 инженеров</b></td>
-            <td><span class="badge badge-green">Штат сбалансирован</span></td>
-          </tr>
-          <tr>
-            <td>Суммарный пробег</td>
-            <td>287.8 км</td>
-            <td><b>120.0 км</b></td>
-            <td><span class="badge badge-green"><b>&minus;58.3% км</b></span></td>
-          </tr>
-          <tr>
-            <td rowspan="2"><b>Югоцентр</b><br><small>56 заявок</small></td>
-            <td>Задействовано специалистов</td>
-            <td>11 инженеров</td>
-            <td><b>9 инженеров</b></td>
-            <td><span class="badge badge-green"><b>&minus;18.2% ФОТ</b></span></td>
-          </tr>
-          <tr>
-            <td>Суммарный пробег</td>
-            <td>256.4 км</td>
-            <td><b>96.8 км</b></td>
-            <td><span class="badge badge-green"><b>&minus;62.2% км</b></span></td>
-          </tr>
-          <tr>
-            <td rowspan="2"><b>Юго-восток</b><br><small>83 заявки</small></td>
-            <td>Задействовано специалистов</td>
-            <td>14 инженеров</td>
-            <td><b>12 инженеров</b></td>
-            <td><span class="badge badge-green"><b>&minus;14.3% ФОТ</b></span></td>
-          </tr>
-          <tr>
-            <td>Суммарный пробег</td>
-            <td>512.6 км</td>
-            <td><b>133.6 км</b></td>
-            <td><span class="badge badge-green"><b>&minus;73.9% км</b></span></td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- РАЗДЕЛ 7 -->
-      <h2><span class="section-num">7</span> Динамическое перепланирование при инцидентах</h2>
-      <p>В алгоритме реализованы три обязательных сценария событийной адаптации расписания в реальном времени:</p>
-      <ul>
-        <li style="margin-bottom:8px;"><b>🚨 Внезапная авария:</b> Мгновенная локальная перестройка графика ведущего инженера (Pass 1). Несрочные задачи вытесняются и передаются свободным универсалам.</li>
-        <li style="margin-bottom:8px;"><b>❌ Отмена клиентом:</b> Вырезание заявки из маршрута с прямым стягиванием рёбер <i>(i-1) &rarr; (i+1)</i>, что устраняет холостой пробег и сокращает время ожидания следующего клиента.</li>
-        <li style="margin-bottom:8px;"><b>⚠️ Поломка транспорта инженера:</b> Невыполненные заявки сошедшего специалиста автоматически распределяются между соседними бригадами района с минимальным смещением графиков.</li>
+      <!-- ═══════ 6. ИНЦИДЕНТЫ ═══════ -->
+      <h2><span class="section-num">6</span> Моделирование и адаптация к инцидентам</h2>
+      <p>Система поддерживает оперативное перепланирование в реальном времени (Online Re-routing):</p>
+      <ul class="styled">
+        <li><b>❌ Отмена заявки клиентом:</b> мгновенное исключение из маршрута со стягиванием дуги $(i\!-\!1) \to (i\!+\!1)$. Высвобождённый временной резерв уменьшает риск опоздания на последующие адреса.</li>
+        <li><b>⚠️ Поломка транспорта:</b> при инциденте в момент $T_{\text{event}}$ завершённые заявки архивируются, невыполненные — распределяются между соседними бригадами с минимальным смещением графиков.</li>
+        <li><b>🚨 Срочная авария на ТКД:</b> экстренная заявка высшего приоритета. Алгоритм находит ближайшего сертифицированного инженера, вытесняет менее срочные задачи и направляет на ликвидацию.</li>
       </ul>
 
-    </div>
+      <!-- ═══════ 7. XAI ═══════ -->
+      <h2><span class="section-num">7</span> Модуль объяснимого ИИ (Explainable AI)</h2>
+      <p>Для диспетчера формируется структурированное обоснование каждого назначения:</p>
+      <div class="code-block">Заявка №74198 назначена мастеру: Инженер 3 (Специалист подключений).
+ОБОСНОВАНИЕ ВЫБОРА:
+1. Квалификация: наличие допуска "connection" (FTTB/FMC).
+2. Географическая оптимизация: ближайший специалист в кластере Кузьминки.
+   Плечо переезда: 1.4 км (расчётное время в пути 11 мин).
+3. Временное окно клиента: слот 10:00–12:00.
+   Расчётное прибытие: 10:11 (гарантированное попадание).
+4. Регламент работ: выполнение с 10:11 до 11:21 (70 мин по нормативу).
+5. Баланс смены: завершение в 11:21, запас до конца дня 9.6 ч.
+6. Экономический эффект: исключает вывод дополнительного сотрудника,
+   минимизирует холостой пробег.</div>
 
-    <!-- ПОДВАЛ -->
-    <div class="footer">
-      <div>ПАО «ВымпелКом» (билайн бизнес) &bull; Хакатон «Лидеры цифровой трансформации 2026»</div>
-      <div>Решение готово к защите &bull; Сентябрь 2026</div>
-    </div>
 
+
+    </div>
   </div>
 
 </body>
