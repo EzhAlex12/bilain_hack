@@ -59,8 +59,9 @@ WORK_DURATION_MIN = {k: max(v - ROAD_PLACEHOLDER_MIN, 0) for k, v in FULL_NORM_M
 
 AVG_SPEED_KMH = {
     "car": 30.0,
-    "foot": 4.5,
+    "bicycle": 16.0,
     "transit": 18.0,
+    "foot": 4.5,
 }
 
 # Координаты районных центров и городов Подмосковья для точного офлайн-геокодирования

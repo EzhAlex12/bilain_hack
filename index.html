@@ -1057,11 +1057,9 @@
     let dgisApiKey = localStorage.getItem('dgis_api_key') || '';
     let routeGeometryCache = {};
 
-    // НАЧАЛЬНЫЙ ДАТАСЕТ (район Восток для демонстрации возможностей и валидации)
-        // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, при запуске открывается окно загрузки файла)
+    // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, при запуске открывается окно загрузки файла)
     const INITIAL_CSV_LINES = null;
-    
-    // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ
+
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ (ПОЛНЫЙ ПЕРЕЧЕНЬ ДЛЯ ВСЕХ ОКРУГОВ)
     const DISTRICT_COORDS = {
       // Восток
@@ -1202,7 +1200,7 @@
           name: 'На велосипеде',
           icon: '🚲',
           baseSpeedKmh: 16.0,
-          windingFactor: 1.25,
+          windingFactor: 1.15,
           overheadMin: 2,
           ignoreTraffic: true,
           dgisTransport: 'bicycle',
@@ -1696,6 +1694,9 @@
       if (req.reqTransport && eng.transport !== req.reqTransport) return null;
 
       const n = eng.tasks.length;
+      let bestPlan = null;
+      let bestKm = Infinity;
+
       for (let pos = 0; pos <= n; pos++) {
         let curTime = eng.shiftStart;
         let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
@@ -1734,31 +1735,32 @@
           curCoords = t.coords;
         }
 
-        if (ok) {
-          return { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
+        if (ok && kmAcc < bestKm) {
+          bestKm = kmAcc;
+          bestPlan = { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
         }
       }
-      return null;
+      return bestPlan;
     }
 
     // ИЕРАРХИЧЕСКАЯ 4-ПРОХОДНАЯ ОПТИМИЗАЦИЯ
-        function getUnassignedReason(req, engineers, isRemote) {
-      if (req.district === 'Кашира' || req.district === 'Ступино') {
-        return 'Территориальная удалённость района (' + req.district + ', >95 км от депо). Время в пути туда-обратно и выполнение работ превышают допустимый лимит смены бригад.';
+    function getUnassignedReason(req, engineers, isRemote) {
+      const skilled = (engineers || []).filter(e => {
+        if (!e.skills.includes(req.reqSkill)) return false;
+        if (req.reqTransport && e.transport !== req.reqTransport) return false;
+        return true;
+      });
+      if (skilled.length === 0) {
+        return 'Нет инженеров с подходящей квалификацией (' + req.reqSkill + ') или транспортом в пуле бригад района.';
       }
-      if (req.gigabit === 'Да' || req.reqSkill === 'gigabit') {
-        return 'Требуется квалификация «Гигабитное подключение». Все сертифицированные инженеры этого профиля полностью загружены до конца дня.';
+      if (req.winEnd - req.winStart < req.durationMin) {
+        return 'Временное окно клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + ') короче норматива выполнения работ (' + req.durationMin + ' мин).';
       }
-      if (req.winStart >= 1080 || (req.winStart >= 960 && req.winEnd <= 1200)) {
-        return 'Конфликт вечернего окна клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + '). Все подходящие бригады в этом секторе уже заняты заказами.';
+      const maxShiftEnd = Math.max(...skilled.map(e => e.shiftEnd));
+      if (req.winStart > maxShiftEnd - req.durationMin) {
+        return 'Начало окна клиента (' + formatTime(req.winStart) + ') не позволяет завершить работы до конца смены бригад (' + formatTime(maxShiftEnd) + ').';
       }
-      if (req.category === 'accident') {
-        return 'Исчерпана пропускная способность авто-аварийщиков. Длительность работ (' + req.durationMin + ' мин) и время доезда превышают доступный резерв смены.';
-      }
-      if (req.category === 'additional_order' || req.category === 'repair') {
-        return 'Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями.';
-      }
-      return 'Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж.';
+      return 'График активных бригад полностью заполнен более приоритетными заявками в данном интервале. Маршрутные окна несовместимы.';
     }
 
     function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames) {
@@ -2152,7 +2154,7 @@
         '2. Географическая оптимизация: Ближайший доступный мастер в кластере ' + s.task.district + '. Переезд: ' + s.legKm.toFixed(1) + ' км (дорога: ' + s.legDrive + ' мин от предыдущей точки).\n' +
         '3. Временное окно клиента: ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '. Расчетное прибытие: ' + formatTime(s.arrTime) + ' (гарантированное попадание в слот).\n' +
         '4. Технический регламент: Работы с ' + formatTime(s.startWork) + ' до ' + formatTime(s.endWork) + ' (' + s.task.durationMin + ' мин по утвержденному нормативу ВымпелКом).\n' +
-        '5. Баланс смены: Без превышения лимита смены 21:00 (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
+        '5. Баланс смены: Без превышения лимита смены ' + formatTime(eng.shiftEnd || 1320) + ' (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
         '6. Экономический эффект: Решение минимизирует холостой пробег бригады и исключает вывод дополнительного сотрудника.';
 
       document.getElementById('modalTitle').innerText = '💡 Обоснование решения: Заявка №' + s.task.id;
@@ -2210,7 +2212,7 @@
           else if (s.task.category === 'connection') catName = 'Подключение';
           else if (s.task.category === 'additional_order') catName = 'Дозаказ';
 
-          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до 21:00.';
+          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до ' + formatTime(eng.shiftEnd || 1320) + '.';
 
           const tCfg = getTransportConfig(eng.transport || globalTransportMode);
           rows.push([
