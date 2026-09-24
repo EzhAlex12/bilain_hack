@@ -351,14 +351,17 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
         if b_name and b_name not in brigade_names:
             brigade_names.append(b_name)
 
-    # Координаты офиса/склада
-    depot_coords = DISTRICT_COORDS.get(district_hint, MOSCOW_CENTER)
-    if "юных ленинцев" in depot_address.lower():
-        depot_coords = (55.7001, 37.7690)
-    elif "симферопольский" in depot_address.lower():
+    # Определение единого депо / офиса района по ТЗ
+    scan_text = f"{depot_address} {district_hint}".lower()
+    if any(k in scan_text for k in ["симферопольск", "югоцентр", "даниловск", "академическ", "котловк", "зюзино", "хамовник", "садовник", "гагаринск", "замосквореч", "нагорн"]):
         depot_coords = (55.6885, 37.6181)
-    elif "бирюлёвская" in depot_address.lower() or "бирюлевская" in depot_address.lower():
+        depot_address = "г. Москва, проезд Симферопольский, д. 7"
+    elif any(k in scan_text for k in ["бирюлев", "бирюлёв", "орехово", "царицыно", "братеево", "зябликово", "кашира", "ступино", "домодедово", "юго-восток"]):
         depot_coords = (55.5976, 37.6690)
+        depot_address = "г. Москва, ул Бирюлёвская, д 1с 1"
+    else:
+        depot_coords = (55.7001, 37.7690)
+        depot_address = "г. Москва, ул Юных Ленинцев, д 83с 4"
 
     return requests, depot_coords, depot_address, brigade_names
 
@@ -386,34 +389,21 @@ def create_engineers_pool(
             eng_id = brigade_names[k]
         else:
             eng_id = f"Инженер-{k+1:02d}"
-        # Для удалённого Подмосковья (Кашира, Ступино, Домодедово) создаем локальных мастеров
-        if has_suburbs and k == 0:
-            home = DISTRICT_COORDS["Кашира"]
-            transport = "car"
-            skills = {"emergency", "connection", "repair", "extra_order"}
-        elif has_suburbs and k == 1:
-            home = DISTRICT_COORDS["Ступино"]
-            transport = "car"
-            skills = {"emergency", "connection", "repair", "extra_order"}
-        elif has_suburbs and k == 2:
-            home = DISTRICT_COORDS["Домодедово"]
-            transport = "car"
-            skills = {"emergency", "connection", "repair", "extra_order"}
-        else:
-            # Мастера района стартуют из офиса/склада района
-            home = depot_coords
-            if k < 5:
-                transport = "car"
-            elif k < 8:
-                transport = "transit"  # 🚌 Общественный транспорт (метро/автобус)
-            elif k < 10:
-                transport = "bicycle"  # 🚲 Велосипед (СИМ)
-            else:
-                transport = "foot"     # 🚶 Пеший специалист
 
-            skills = {"connection", "extra_order", "repair"}
-            if k < 4:  # 4 мастера с допуском к авариям на ТКД
-                skills.add("emergency")
+        # ВСЕ 100% ИНЖЕНЕРОВ СТАРТУЮТ СТРОГО ИЗ ОФИСА / СКЛАДА РАЙОНА (ДЕПО)
+        home = depot_coords
+        if k < 5:
+            transport = "car"
+        elif k < 8:
+            transport = "transit"  # 🚌 Общественный транспорт (метро/автобус)
+        elif k < 10:
+            transport = "bicycle"  # 🚲 Велосипед (СИМ)
+        else:
+            transport = "foot"     # 🚶 Пеший специалист
+
+        skills = {"connection", "extra_order", "repair"}
+        if k < 4:  # 4 мастера с допуском к авариям на ТКД
+            skills.add("emergency")
 
         cap = 30 if transport == "car" else (18 if transport == "transit" else (14 if transport == "bicycle" else 10))
         engineers.append(

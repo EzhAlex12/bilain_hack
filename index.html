@@ -1564,7 +1564,7 @@
         if (lowBk.includes('подключение') || lowHd.includes('конвергенция') || lowHd.includes('подключение')) {
           category = 'connection';
           reqSkill = 'connection';
-          durationMin = 70;
+          durationMin = 60;
         } else if (lowBk.includes('дозаказ') || lowHd.includes('дозаказ')) {
           category = 'additional_order';
           reqSkill = 'connection';
@@ -1572,7 +1572,7 @@
         } else if (lowHd.includes('авария') || lowBk.includes('авария') || lowBk.includes('глобальная')) {
           category = 'accident';
           reqSkill = 'accident';
-          durationMin = 80;
+          durationMin = 120;
         }
 
         // Парсинг временных окон (никогда не возвращает NaN)
@@ -1607,23 +1607,26 @@
         });
       }
 
-      // Определение депо (синхронизировано с vrptw_4pass_solver.py)
-      let depotCoords = [55.7001, 37.7690]; // Юных Ленинцев (Восток) по умолчанию
-      const allText = (depotAddress + ' ' + districtHint).toLowerCase();
+      // Определение депо (3 официальных опорных офиса/склада билайна по ТЗ)
+      let depotCoords = [55.7001, 37.7690];
+      if (!depotAddress) depotAddress = 'г. Москва, ул Юных Ленинцев, д 83с 4';
+      const scanContext = (depotAddress + ' ' + districtHint + ' ' + (requests.slice(0, 30).map(r => r.district + ' ' + r.address).join(' '))).toLowerCase();
 
-      if (allText.includes('симферопольск') || allText.includes('югоцентр') || allText.includes('даниловск') ||
-          allText.includes('академическ') || allText.includes('котловк') || allText.includes('зюзино') ||
-          allText.includes('хамовник') || allText.includes('садовник') || allText.includes('гагаринск') ||
-          allText.includes('замосквореч') || allText.includes('нагорн')) {
-        depotCoords = [55.6885, 37.6181]; // Симферопольский проезд (Югоцентр)
-      } else if (allText.includes('бирюлев') || allText.includes('домодедово') || allText.includes('кашира') ||
-                 allText.includes('ступино') || allText.includes('орехово') || allText.includes('царицыно') ||
-                 allText.includes('братеево') || allText.includes('зябликово') || allText.includes('юго-восток')) {
-        depotCoords = [55.5976, 37.6690]; // Бирюлёвская (Юго-восток)
-      } else if (allText.includes('ленинцев') || allText.includes('восток') || allText.includes('кузьминк') ||
-                 allText.includes('рязанск') || allText.includes('таганск') || allText.includes('текстильщик') ||
-                 allText.includes('выхино') || allText.includes('лефортово') || allText.includes('басманн')) {
-        depotCoords = [55.7001, 37.7690]; // Юных Ленинцев (Восток)
+      if (scanContext.includes('симферопольск') || scanContext.includes('югоцентр') || scanContext.includes('даниловск') ||
+          scanContext.includes('академическ') || scanContext.includes('котловк') || scanContext.includes('зюзино') ||
+          scanContext.includes('хамовник') || scanContext.includes('садовник') || scanContext.includes('гагаринск') ||
+          scanContext.includes('замосквореч') || scanContext.includes('нагорн')) {
+        depotCoords = [55.6885, 37.6181];
+        depotAddress = 'г. Москва, проезд Симферопольский, д. 7';
+      } else if (scanContext.includes('бирюлев') || scanContext.includes('бирюлёв') || scanContext.includes('домодедово') ||
+                 scanContext.includes('кашира') || scanContext.includes('ступино') || scanContext.includes('орехово') ||
+                 scanContext.includes('царицыно') || scanContext.includes('братеево') || scanContext.includes('зябликово') ||
+                 scanContext.includes('юго-восток')) {
+        depotCoords = [55.5976, 37.6690];
+        depotAddress = 'г. Москва, ул Бирюлёвская, д 1с 1';
+      } else {
+        depotCoords = [55.7001, 37.7690];
+        depotAddress = 'г. Москва, ул Юных Ленинцев, д 83с 4';
       }
 
             const brigadeNames = [];
@@ -1667,10 +1670,8 @@
           role += ' (Подключения)';
         }
 
+        // ВСЕ 100% инженеров стартуют СТРОГО из офиса/склада района (депо)
         let startCoords = depotCoords;
-        if (isRemote && i >= count - 3) {
-          startCoords = DISTRICT_COORDS['Ступино'] || depotCoords;
-        }
 
         list.push({
           id: 'ENG-' + (i + 1),
@@ -1679,8 +1680,8 @@
           transport: transport,
           skills: skills,
           startCoords: startCoords,
-          shiftStart: 540,
-          shiftEnd: 1260,
+          shiftStart: 480,
+          shiftEnd: 1320,
           tasks: [],
           totalKm: 0,
           totalDriveMin: 0
@@ -1697,7 +1698,7 @@
       const n = eng.tasks.length;
       for (let pos = 0; pos <= n; pos++) {
         let curTime = eng.shiftStart;
-        let curCoords = eng.startCoords;
+        let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
         let ok = true;
         let kmAcc = 0;
         let driveMinAcc = 0;
@@ -1767,22 +1768,33 @@
       const engineers = createEngineers(count, depotCoords, isRemote, transportMode, brigadeNames);
       const assignedReqs = new Set();
 
-      function runPass(filterFn, maxEngToOpen, passName) {
+      function runPass(filterFn, passName) {
         const pool = requests.filter(r => !assignedReqs.has(r.id) && filterFn(r));
-        pool.sort((a, b) => a.winStart - b.winStart);
+        // Сортировка по началу окна, для подключений — приоритет гигабитным
+        pool.sort((a, b) => {
+          if (a.winStart !== b.winStart) return a.winStart - b.winStart;
+          if (a.gigabit && !b.gigabit) return -1;
+          if (!a.gigabit && b.gigabit) return 1;
+          return 0;
+        });
 
         for (const req of pool) {
           let bestCost = Infinity;
           let bestPlan = null;
           let bestEng = null;
 
-          for (let e = 0; e < maxEngToOpen; e++) {
+          // Приоритет 1: Проверяем ВСЕХ инженеров пула (не отбрасываем заявку искусственно!)
+          for (let e = 0; e < engineers.length; e++) {
             const eng = engineers[e];
             const plan = tryInsert(eng, req, true);
             if (plan) {
+              const isActive = eng.tasks.length > 0;
               const deltaKm = plan.kmAcc - eng.totalKm;
-              if (deltaKm < bestCost) {
-                bestCost = deltaKm;
+              // Приоритет 2: Минимизация персонала (+1000 штраф за открытие новой смены)
+              // Приоритет 3: Минимизация пробега (deltaKm)
+              const cost = isActive ? deltaKm : (1000.0 + deltaKm);
+              if (cost < bestCost) {
+                bestCost = cost;
                 bestPlan = plan;
                 bestEng = eng;
               }
@@ -1801,11 +1813,10 @@
         }
       }
 
-      runPass(r => r.category === 'accident', 4, 'Аварии');
-      runPass(r => r.category === 'connection', 10, 'Подключения');
-      runPass(r => r.category === 'repair', 11, 'Ремонты');
-      const openEngCount = engineers.filter(e => e.tasks.length > 0).length || 8;
-      runPass(r => r.category === 'additional_order', openEngCount, 'Дозаказы');
+      runPass(r => r.category === 'accident', 'Аварии');
+      runPass(r => r.category === 'connection', 'Подключения');
+      runPass(r => r.category === 'repair', 'Ремонты');
+      runPass(r => r.category === 'additional_order', 'Дозаказы');
 
       // Сбор всех нераспределенных заявок с конкретными обоснованиями
       const unassigned = [];
@@ -1914,7 +1925,7 @@
         const color = ENG_COLORS[idx % ENG_COLORS.length];
         const transport = eng.transport || globalTransportMode;
         const cfg = getTransportConfig(transport);
-        const latlngs = [eng.startCoords];
+        const latlngs = [depotCoords]; // Маршрут СТРОГО начинается от маркера депо/офиса
 
         eng.schedule.forEach((s, stepIdx) => {
           latlngs.push(s.task.coords);
@@ -2445,7 +2456,7 @@
     // ПЕРЕСЧЕТ РАСПИСАНИЯ ОДНОГО ИНЖЕНЕРА
     function recomputeEngineer(eng) {
       let curTime = eng.shiftStart;
-      let curCoords = eng.startCoords;
+      let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
       let kmAcc = 0;
       let driveMinAcc = 0;
       const schedule = [];

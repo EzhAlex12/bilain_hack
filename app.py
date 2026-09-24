@@ -76,19 +76,22 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
         if b and b not in brigade_names:
             brigade_names.append(b)
 
-    depot_coords = solver.DISTRICT_COORDS.get(district_hint, solver.MOSCOW_CENTER)
-    if "юных ленинцев" in depot_address.lower():
-        depot_coords = (55.7001, 37.7690)
-    elif "симферопольский" in depot_address.lower():
+    scan_text = f"{depot_address} {district_hint}".lower()
+    if any(k in scan_text for k in ["симферопольск", "югоцентр", "даниловск", "академическ", "котловк", "зюзино", "хамовник", "садовник", "гагаринск", "замосквореч", "нагорн"]):
         depot_coords = (55.6885, 37.6181)
-    elif "бирюлёвская" in depot_address.lower() or "бирюлевская" in depot_address.lower():
+        depot_address = "г. Москва, проезд Симферопольский, д. 7"
+    elif any(k in scan_text for k in ["бирюлев", "бирюлёв", "орехово", "царицыно", "братеево", "зябликово", "кашира", "ступино", "домодедово", "юго-восток"]):
         depot_coords = (55.5976, 37.6690)
+        depot_address = "г. Москва, ул Бирюлёвская, д 1с 1"
+    else:
+        depot_coords = (55.7001, 37.7690)
+        depot_address = "г. Москва, ул Юных Ленинцев, д 83с 4"
 
     return requests, depot_coords, depot_address, brigade_names
 
 
 def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, n_engineers: int = 12, brigade_names: list[str] = None):
-    has_suburbs = any(r.district in ["Кашира", "Ступино", "Домодедово"] for r in requests)
+    has_suburbs = False  # Все инженеры стартуют строго из офиса
     n = max(n_engineers, len(brigade_names)) if brigade_names else n_engineers
     engineers = solver.create_engineers_pool(n_engineers=n, depot_coords=depot_coords, has_suburbs=has_suburbs, brigade_names=brigade_names)
 
