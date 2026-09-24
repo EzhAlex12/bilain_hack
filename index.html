@@ -250,7 +250,7 @@
     }
     .transport-btn-group {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 4px;
       background: #EAEBED;
       padding: 2px;
@@ -900,6 +900,9 @@
           <button class="transport-btn" id="btnTransCar" onclick="setTransportMode('car')">
             🚗 На авто
           </button>
+          <button class="transport-btn" id="btnTransTransit" onclick="setTransportMode('transit')">
+            🚌 Общ. транспорт
+          </button>
           <button class="transport-btn" id="btnTransBicycle" onclick="setTransportMode('bicycle')">
             🚲 Велосипед
           </button>
@@ -1181,7 +1184,20 @@
 
     // ХАРАКТЕРИСТИКИ РЕЖИМОВ ТРАНСПОРТА
     function getTransportConfig(transport) {
-      if (transport === 'bicycle') {
+      if (transport === 'transit' || transport === 'public_transport') {
+        return {
+          name: 'Общ. транспорт',
+          icon: '🚌',
+          baseSpeedKmh: 20.0,
+          windingFactor: 1.25,
+          overheadMin: 3,
+          ignoreTraffic: true,
+          dgisTransport: 'transit',
+          osrmProfile: 'driving',
+          dashArray: '10, 5',
+          weight: 4
+        };
+      } else if (transport === 'bicycle') {
         return {
           name: 'На велосипеде',
           icon: '🚲',
@@ -2846,7 +2862,7 @@
       if (session.transportMode) {
         globalTransportMode = session.transportMode;
         document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
-        const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+        const btnMap = { car: 'btnTransCar', transit: 'btnTransTransit', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
         const btn = document.getElementById(btnMap[session.transportMode]);
         if (btn) btn.classList.add('active');
       }
@@ -2961,7 +2977,7 @@
     async function setTransportMode(mode) {
       globalTransportMode = mode;
       document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
-      const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+      const btnMap = { car: 'btnTransCar', transit: 'btnTransTransit', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
       const btn = document.getElementById(btnMap[mode]);
       if (btn) btn.classList.add('active');
 
