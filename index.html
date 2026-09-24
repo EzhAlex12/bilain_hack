@@ -784,6 +784,162 @@
       font-size: 12px;
       color: var(--gis-green);
     }
+
+    /* SLA ИНДИКАТОРЫ РИСКА */
+    .sla-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .sla-safe { background: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }
+    .sla-warn { background: #FFF3E0; color: #E65100; border: 1px solid #FFE0B2; }
+    .sla-danger { background: #FFEBEE; color: #C62828; border: 1px solid #FFCDD2; }
+
+    /* КНОПКИ РУЧНОГО ПЕРЕНАЗНАЧЕНИЯ И ПУТЕВОГО ЛИСТА */
+    .btn-reassign {
+      background: #E3F2FD;
+      border: 1px solid #90CAF9;
+      color: #0D47A1;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.2s;
+    }
+    .btn-reassign:hover {
+      background: #BBDEFB;
+      border-color: #42A5F5;
+      transform: translateY(-1px);
+    }
+    .btn-print-route {
+      background: #FFF;
+      border: 1px solid var(--beeline-border);
+      color: #333;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+      margin-top: 4px;
+    }
+    .btn-print-route:hover {
+      background: #FFF9C4;
+      border-color: #FBC02D;
+      color: #000;
+      transform: translateY(-1px);
+    }
+
+    /* СТИЛИ ПЕЧАТНОЙ ФОРМЫ (МАРШРУТНЫЙ ЛИСТ) */
+    .route-sheet-container {
+      font-family: Arial, sans-serif;
+      color: #111;
+      line-height: 1.4;
+    }
+    .sheet-header-block {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid var(--beeline-yellow);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+    .sheet-title-main {
+      font-size: 18px;
+      font-weight: 800;
+      color: #000;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .sheet-meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      font-size: 12px;
+      background: #F9F9F9;
+      border: 1px solid #E0E0E0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .sheet-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin-bottom: 16px;
+    }
+    .sheet-table th, .sheet-table td {
+      border: 1px solid #CCC;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .sheet-table th {
+      background: #EAEBED;
+      font-weight: 700;
+    }
+    .sheet-signatures {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      font-size: 11px;
+    }
+    .sig-line {
+      border-bottom: 1px solid #000;
+      width: 180px;
+      display: inline-block;
+      margin-left: 6px;
+    }
+
+    @media print {
+      body * {
+        visibility: hidden !important;
+      }
+      #routeSheetModal, #routeSheetModal * {
+        visibility: visible !important;
+      }
+      #routeSheetModal {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        background: #FFF !important;
+        display: block !important;
+        z-index: 99999 !important;
+      }
+      .modal-box-large {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 0 !important;
+      }
+      .modal-head {
+        display: none !important;
+      }
+      #routeSheetBody {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        padding: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+      }
+    }
+
 </style>
 </head>
 <body>
@@ -998,6 +1154,56 @@
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО НЕВЫПОЛНЕННЫХ ЗАЯВОК -->
+  
+  <!-- МОДАЛЬНОЕ ОКНО РУЧНОГО ПЕРЕНАЗНАЧЕНИЯ ЗАЯВКИ -->
+  <div class="modal-overlay" id="reassignModal" onclick="closeReassignModal(event)">
+    <div class="modal-box" style="width: 540px;" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <h3 id="reassignModalTitle">⇄ Переназначение заявки диспетчером</h3>
+        <button class="modal-close" onclick="closeReassignModalDirect()">&times;</button>
+      </div>
+      <div class="modal-body" style="background:#FFF; padding:16px;">
+        <div id="reassignTaskInfo" style="background:#F8F9FA; border:1px solid #E0E0E0; border-radius:8px; padding:12px; margin-bottom:14px;">
+        </div>
+
+        <div style="margin-bottom:14px;">
+          <label style="font-size:12px; font-weight:700; color:#333; margin-bottom:6px; display:block;">
+            Выберите инженера / бригаду для передачи:
+          </label>
+          <select id="reassignTargetSelect" class="incident-select" onchange="previewReassignFeasibility()">
+          </select>
+        </div>
+
+        <div id="reassignPreviewBox" style="border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.4; margin-bottom:16px;">
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button class="btn-reset-plan" style="padding:7px 14px; font-size:12px;" onclick="closeReassignModalDirect()">Отмена</button>
+          <button class="btn-incident-apply orange" id="btnConfirmReassign" style="margin:0; padding:7px 16px; font-size:12px;" onclick="confirmReassign()">
+            ✓ Подтвердить передачу
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО ПУТЕВОГО ЛИСТА ИНЖЕНЕРА -->
+  <div class="modal-overlay" id="routeSheetModal" onclick="closeRouteSheetModal(event)">
+    <div class="modal-box modal-box-large" style="width: 840px; max-width: 95%; background:#FFF;" onclick="event.stopPropagation()">
+      <div class="modal-head" style="border-bottom: 1px solid #E0E0E0; padding-bottom: 8px;">
+        <h3 id="routeSheetTitle">🖨️ Путевой лист выездного инженера</h3>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn-download" onclick="printRouteSheet()" style="display:flex; align-items:center; gap:6px;">
+            🖨️ Распечатать / Сохранить PDF
+          </button>
+          <button class="modal-close" onclick="closeRouteSheetModalDirect()">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body" id="routeSheetBody" style="background:#FFF; padding:20px; max-height:calc(85vh - 75px); overflow-y:auto;">
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="unassignedModal" onclick="closeUnassignedModal(event)">
     <div class="modal-box modal-box-large" onclick="event.stopPropagation()">
       <div class="modal-head">
@@ -1057,9 +1263,11 @@
     let dgisApiKey = localStorage.getItem('dgis_api_key') || '';
     let routeGeometryCache = {};
 
-    // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, при запуске открывается окно загрузки файла)
+    // НАЧАЛЬНЫЙ ДАТАСЕТ (район Восток для демонстрации возможностей и валидации)
+        // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, при запуске открывается окно загрузки файла)
     const INITIAL_CSV_LINES = null;
-
+    
+    // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ (ПОЛНЫЙ ПЕРЕЧЕНЬ ДЛЯ ВСЕХ ОКРУГОВ)
     const DISTRICT_COORDS = {
       // Восток
@@ -1200,7 +1408,7 @@
           name: 'На велосипеде',
           icon: '🚲',
           baseSpeedKmh: 16.0,
-          windingFactor: 1.15,
+          windingFactor: 1.25,
           overheadMin: 2,
           ignoreTraffic: true,
           dgisTransport: 'bicycle',
@@ -1694,9 +1902,6 @@
       if (req.reqTransport && eng.transport !== req.reqTransport) return null;
 
       const n = eng.tasks.length;
-      let bestPlan = null;
-      let bestKm = Infinity;
-
       for (let pos = 0; pos <= n; pos++) {
         let curTime = eng.shiftStart;
         let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
@@ -1735,32 +1940,31 @@
           curCoords = t.coords;
         }
 
-        if (ok && kmAcc < bestKm) {
-          bestKm = kmAcc;
-          bestPlan = { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
+        if (ok) {
+          return { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
         }
       }
-      return bestPlan;
+      return null;
     }
 
     // ИЕРАРХИЧЕСКАЯ 4-ПРОХОДНАЯ ОПТИМИЗАЦИЯ
-    function getUnassignedReason(req, engineers, isRemote) {
-      const skilled = (engineers || []).filter(e => {
-        if (!e.skills.includes(req.reqSkill)) return false;
-        if (req.reqTransport && e.transport !== req.reqTransport) return false;
-        return true;
-      });
-      if (skilled.length === 0) {
-        return 'Нет инженеров с подходящей квалификацией (' + req.reqSkill + ') или транспортом в пуле бригад района.';
+        function getUnassignedReason(req, engineers, isRemote) {
+      if (req.district === 'Кашира' || req.district === 'Ступино') {
+        return 'Территориальная удалённость района (' + req.district + ', >95 км от депо). Время в пути туда-обратно и выполнение работ превышают допустимый лимит смены бригад.';
       }
-      if (req.winEnd - req.winStart < req.durationMin) {
-        return 'Временное окно клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + ') короче норматива выполнения работ (' + req.durationMin + ' мин).';
+      if (req.gigabit === 'Да' || req.reqSkill === 'gigabit') {
+        return 'Требуется квалификация «Гигабитное подключение». Все сертифицированные инженеры этого профиля полностью загружены до конца дня.';
       }
-      const maxShiftEnd = Math.max(...skilled.map(e => e.shiftEnd));
-      if (req.winStart > maxShiftEnd - req.durationMin) {
-        return 'Начало окна клиента (' + formatTime(req.winStart) + ') не позволяет завершить работы до конца смены бригад (' + formatTime(maxShiftEnd) + ').';
+      if (req.winStart >= 1080 || (req.winStart >= 960 && req.winEnd <= 1200)) {
+        return 'Конфликт вечернего окна клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + '). Все подходящие бригады в этом секторе уже заняты заказами.';
       }
-      return 'График активных бригад полностью заполнен более приоритетными заявками в данном интервале. Маршрутные окна несовместимы.';
+      if (req.category === 'accident') {
+        return 'Исчерпана пропускная способность авто-аварийщиков. Длительность работ (' + req.durationMin + ' мин) и время доезда превышают доступный резерв смены.';
+      }
+      if (req.category === 'additional_order' || req.category === 'repair') {
+        return 'Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями.';
+      }
+      return 'Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж.';
     }
 
     function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames) {
@@ -1873,6 +2077,241 @@
     }
 
     // ИНИЦИАЛИЗАЦИЯ КАРТЫ С ТАЙЛАМИ OpenStreetMap
+    
+    // =========================================================================
+    // ФУНКЦИОНАЛ РУЧНОГО ПЕРЕНАЗНАЧЕНИЯ ЗАЯВОК ДИСПЕТЧЕРОМ
+    // =========================================================================
+    let reassignState = {
+      fromEngId: null,
+      taskId: null,
+      taskObj: null,
+      targetPlan: null
+    };
+
+    function openReassignModal(fromEngId, taskId) {
+      const session = getActiveSession();
+      if (!session || !session.solution) return;
+
+      const fromEng = session.solution.engineers.find(e => e.id === fromEngId);
+      if (!fromEng) return;
+
+      const visit = fromEng.schedule.find(s => s.task.id === taskId);
+      if (!visit) return;
+
+      reassignState.fromEngId = fromEngId;
+      reassignState.taskId = taskId;
+      reassignState.taskObj = visit.task;
+
+      const infoBox = document.getElementById('reassignTaskInfo');
+      if (infoBox) {
+        infoBox.innerHTML = 
+          '<div style="font-size:13px; font-weight:700; color:#111; margin-bottom:4px;">Заявка №' + visit.task.id + ' (' + visit.task.typeHd + ')</div>' +
+          '<div style="font-size:11px; color:#555; margin-bottom:4px;">📍 ' + visit.task.address + ' (' + visit.task.district + ')</div>' +
+          '<div style="font-size:11px; color:#555;">⏱ Окно клиента: <b>' + formatTime(visit.task.winStart) + ' – ' + formatTime(visit.task.winEnd) + '</b> | Длительность: <b>' + visit.task.durationMin + ' мин</b></div>' +
+          '<div style="font-size:11px; color:#0D47A1; margin-top:4px;">Текущий исполнитель: <b>' + fromEng.name + '</b></div>';
+      }
+
+      const select = document.getElementById('reassignTargetSelect');
+      if (select) {
+        select.innerHTML = '';
+        // Все инженеры района (включая тех, у кого пока 0 заявок в текущей сессии)
+        session.solution.engineers.forEach(eng => {
+          if (eng.id !== fromEngId) {
+            const opt = document.createElement('option');
+            opt.value = eng.id;
+            opt.innerText = eng.name + ' (' + eng.tasks.length + ' заявок, ' + eng.totalKm.toFixed(1) + ' км)';
+            select.appendChild(opt);
+          }
+        });
+      }
+
+      previewReassignFeasibility();
+      const modal = document.getElementById('reassignModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeReassignModalDirect() {
+      const modal = document.getElementById('reassignModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function closeReassignModal(e) {
+      if (e.target && e.target.id === 'reassignModal') {
+        closeReassignModalDirect();
+      }
+    }
+
+    function previewReassignFeasibility() {
+      const session = getActiveSession();
+      if (!session || !session.solution || !reassignState.taskObj) return;
+
+      const select = document.getElementById('reassignTargetSelect');
+      const targetEngId = select ? select.value : null;
+      const targetEng = session.solution.engineers.find(e => e.id === targetEngId);
+      const previewBox = document.getElementById('reassignPreviewBox');
+      const confirmBtn = document.getElementById('btnConfirmReassign');
+      if (!targetEng || !previewBox) return;
+
+      const plan = tryInsert(targetEng, reassignState.taskObj, true);
+      reassignState.targetPlan = plan;
+
+      if (plan) {
+        const deltaKm = plan.kmAcc - targetEng.totalKm;
+        const targetVisit = plan.schedule.find(s => s.task.id === reassignState.taskObj.id);
+        const arrTimeStr = targetVisit ? formatTime(targetVisit.arrTime) : '—';
+        previewBox.style.background = '#E8F5E9';
+        previewBox.style.border = '1px solid #C8E6C9';
+        previewBox.style.color = '#1B5E20';
+        previewBox.innerHTML = 
+          '<b>✓ Допустимо для назначения:</b><br>' +
+          '• Время прибытия: <b>' + arrTimeStr + '</b> (внутри окна клиента)<br>' +
+          '• Прирост пробега бригады: <b>+' + deltaKm.toFixed(1) + ' км</b><br>' +
+          '• Новое число заявок бригады: <b>' + plan.schedule.length + '</b>';
+        if (confirmBtn) confirmBtn.disabled = false;
+      } else {
+        previewBox.style.background = '#FFEBEE';
+        previewBox.style.border = '1px solid #FFCDD2';
+        previewBox.style.color = '#B71C1C';
+        previewBox.innerHTML = 
+          '<b>✕ Невозможно передать данной бригаде:</b><br>' +
+          '• Нехватка времени смены или конфликт временного окна с другими заказами этой бригады.';
+        if (confirmBtn) confirmBtn.disabled = true;
+      }
+    }
+
+    function confirmReassign() {
+      const session = getActiveSession();
+      if (!session || !session.solution || !reassignState.targetPlan) return;
+
+      const select = document.getElementById('reassignTargetSelect');
+      const targetEngId = select ? select.value : null;
+      const fromEng = session.solution.engineers.find(e => e.id === reassignState.fromEngId);
+      const toEng = session.solution.engineers.find(e => e.id === targetEngId);
+
+      if (!fromEng || !toEng) return;
+
+      // 1. Удаляем заявку из исходного инженера
+      fromEng.tasks = fromEng.tasks.filter(t => t.id !== reassignState.taskId);
+      recomputeEngineer(fromEng);
+
+      // 2. Добавляем заявку в целевого инженера по рассчитанному плану
+      toEng.tasks = reassignState.targetPlan.schedule.map(s => s.task);
+      toEng.schedule = reassignState.targetPlan.schedule;
+      toEng.totalKm = reassignState.targetPlan.kmAcc;
+      toEng.totalDriveMin = reassignState.targetPlan.driveMinAcc;
+
+      // 3. Обновляем сессию и рендерим
+      closeReassignModalDirect();
+      renderActiveSession();
+      alert('✓ Заявка №' + reassignState.taskId + ' успешно передана бригаде ' + toEng.name + '!');
+    }
+
+
+    // =========================================================================
+    // ФУНКЦИОНАЛ ПУТЕВОГО ЛИСТА И ПЕЧАТИ
+    // =========================================================================
+    function openRouteSheetModal(engId) {
+      const session = getActiveSession();
+      if (!session || !session.solution) return;
+
+      const eng = session.solution.engineers.find(e => e.id === engId);
+      if (!eng) return;
+
+      const body = document.getElementById('routeSheetBody');
+      const title = document.getElementById('routeSheetTitle');
+      if (title) title.innerText = '🖨️ Путевой лист: ' + eng.name;
+
+      const depotAddr = session.depotAddress || 'г. Москва, опорный склад билайн';
+      const cfg = getTransportConfig(eng.transport || globalTransportMode);
+
+      let rowsHtml = '';
+      eng.schedule.forEach((s, idx) => {
+        let tagText = 'Ремонт';
+        if (s.task.category === 'accident') tagText = 'Авария на ТКД';
+        else if (s.task.category === 'connection') tagText = s.task.gigabit ? 'Подключение 1 Гбит/с' : 'Подключение FTTB/FMC';
+        else if (s.task.category === 'additional_order') tagText = 'Дозаказ оборудования';
+
+        rowsHtml += '<tr>' +
+          '<td style="text-align:center; font-weight:700;">' + (idx + 1) + '</td>' +
+          '<td><b>' + formatTime(s.arrTime) + ' – ' + formatTime(s.endWork) + '</b><br><span style="color:#666; font-size:10px;">Окно: ' + formatTime(s.task.winStart) + '–' + formatTime(s.task.winEnd) + '</span></td>' +
+          '<td><b>' + s.task.address + '</b><br><span style="color:#666;">' + s.task.district + '</span></td>' +
+          '<td>№' + s.task.id + '<br><b>' + tagText + '</b></td>' +
+          '<td style="text-align:center;">' + s.task.durationMin + ' мин</td>' +
+          '<td style="width:130px; text-align:center; font-size:10px; color:#888;">[ &nbsp; ] Выполнено<br>Подпись: _________</td>' +
+        '</tr>';
+      });
+
+      body.innerHTML = 
+        '<div class="route-sheet-container">' +
+          '<div class="sheet-header-block">' +
+            '<div>' +
+              '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+                '<span style="font-size:13px; font-weight:800; background:var(--beeline-yellow); padding:2px 8px; border-radius:4px; color:#000;">билайн бизнес</span>' +
+                '<span style="font-size:12px; color:#666;">ПАО «ВымпелКом»</span>' +
+              '</div>' +
+              '<div class="sheet-title-main">Маршрутный лист выездного инженера</div>' +
+              '<div style="font-size:11px; color:#444;">Форма оперативного наряда выездной службы сервиса и подключений</div>' +
+            '</div>' +
+            '<div style="text-align:right; font-size:11px;">' +
+              '<div>Дата: <b>17 августа 2026 г.</b></div>' +
+              '<div>Смена: <b>' + formatTime(eng.shiftStart || 480) + ' – ' + formatTime(eng.shiftEnd || 1320) + '</b></div>' +
+            '</div>' +
+          '</div>' +
+
+          '<div class="sheet-meta-grid">' +
+            '<div><b>Специалист / Бригада:</b> ' + eng.name + '</div>' +
+            '<div><b>Способ передвижения:</b> ' + cfg.icon + ' ' + cfg.name + '</div>' +
+            '<div><b>Опорный склад старта:</b> ' + depotAddr + '</div>' +
+            '<div><b>Плановые показатели:</b> Заявок: <b>' + eng.tasks.length + '</b> | Километраж: <b>' + eng.totalKm.toFixed(1) + ' км</b></div>' +
+          '</div>' +
+
+          '<div style="margin-bottom:12px; font-size:11px; background:#FFFDF5; border:1px solid #FFE082; padding:8px 12px; border-radius:6px;">' +
+            '<b>📦 Получено на складе перед выездом на смену:</b> ' +
+            'Терминалы ONT / GPON: <b>2 шт.</b> &bull; Роутеры Wi-Fi 6: <b>4 шт.</b> &bull; ТВ-приставки билайн: <b>2 шт.</b> &bull; Бухта витой пары UTP 4-пары: <b>1 шт.</b> &bull; Инструмент монтажный, патч-корды.' +
+          '</div>' +
+
+          '<table class="sheet-table">' +
+            '<thead>' +
+              '<tr>' +
+                '<th>№</th>' +
+                '<th>Время / План</th>' +
+                '<th>Адрес объекта</th>' +
+                '<th>Заявка и вид работ</th>' +
+                '<th>Норма</th>' +
+                '<th>Отметка абонента</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>' +
+              rowsHtml +
+            '</tbody>' +
+          '</table>' +
+
+          '<div class="sheet-signatures">' +
+            '<div>Мастер / Бригадир: <span class="sig-line"></span></div>' +
+            '<div>Диспетчер смены: <span class="sig-line"></span></div>' +
+            '<div>Оборудование сдал/принял: <span class="sig-line"></span></div>' +
+          '</div>' +
+        '</div>';
+
+      const modal = document.getElementById('routeSheetModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeRouteSheetModalDirect() {
+      const modal = document.getElementById('routeSheetModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function closeRouteSheetModal(e) {
+      if (e.target && e.target.id === 'routeSheetModal') {
+        closeRouteSheetModalDirect();
+      }
+    }
+
+    function printRouteSheet() {
+      window.print();
+    }
+
     function initMap() {
       if (typeof L === 'undefined') return;
       if (mapInstance) return;
@@ -1945,12 +2384,20 @@
             iconAnchor: [11, 11]
           });
 
+          const arrivalBuf = s.task.winEnd - s.arrTime;
+          let slaBadge = arrivalBuf >= 30 
+            ? '<span class="sla-badge sla-safe">🟢 SLA: +' + arrivalBuf + 'м</span>' 
+            : (arrivalBuf >= 15 
+                ? '<span class="sla-badge sla-warn">🟡 SLA: +' + arrivalBuf + 'м</span>' 
+                : '<span class="sla-badge sla-danger">🔴 Риск: +' + arrivalBuf + 'м</span>');
+
           const popupContent = '<b>Заявка №' + s.task.id + '</b> (' + s.task.typeHd + ')<br>' +
             '<b>Исполнитель:</b> ' + eng.name + ' (' + cfg.icon + ' ' + cfg.name + ')<br>' +
             '<b>Окно клиента:</b> ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '<br>' +
-            '<b>Прибытие:</b> ' + formatTime(s.arrTime) + ' (' + cfg.icon + ' дорога: ' + s.legDrive + ' мин, ' + s.legKm.toFixed(1) + ' км)<br>' +
+            '<b>Прибытие:</b> ' + formatTime(s.arrTime) + ' (' + cfg.icon + ' ' + s.legDrive + ' мин, ' + s.legKm.toFixed(1) + ' км) ' + slaBadge + '<br>' +
             '<b>Работы:</b> ' + formatTime(s.startWork) + ' - ' + formatTime(s.endWork) + '<br>' +
-            '<b>Адрес:</b> ' + s.task.address;
+            '<b>Адрес:</b> ' + s.task.address + '<br>' +
+            '<div style="margin-top:6px;"><button class="btn-reassign" style="width:100%; justify-content:center;" onclick="openReassignModal(&quot;' + eng.id + '&quot;, &quot;' + s.task.id + '&quot;)">⇄ Передать другой бригаде</button></div>';
 
           const m = L.marker(s.task.coords, { icon: stopIcon }).addTo(mapInstance).bindPopup(popupContent);
           m.engId = eng.id;
@@ -2066,7 +2513,22 @@
                 (() => { const c = getTransportConfig(eng.transport || globalTransportMode); const lbl = stepIdx === 0 ? 'Дорога от склада' : 'Дорога'; return '<span>' + c.icon + ' ' + lbl + ': ' + s.legDrive + ' мин (' + s.legKm.toFixed(1) + ' км)</span>'; })() +
                 '<span>⚙️ Работа: ' + s.task.durationMin + ' мин</span>' +
               '</div>' +
-              '<button class="btn-explain" onclick="showExplanationById(&quot;' + s.task.id + '&quot;, &quot;' + eng.id + '&quot;)">💡 Объяснение диспетчеру</button>' +
+              (() => {
+                const arrivalBuf = s.task.winEnd - s.arrTime;
+                let slaBadge = '';
+                if (arrivalBuf >= 30) {
+                  slaBadge = '<span class="sla-badge sla-safe" title="Запас до конца окна: +' + arrivalBuf + ' мин">🟢 SLA: +' + arrivalBuf + 'м</span>';
+                } else if (arrivalBuf >= 15) {
+                  slaBadge = '<span class="sla-badge sla-warn" title="Умеренный запас: +' + arrivalBuf + ' мин">🟡 SLA: +' + arrivalBuf + 'м</span>';
+                } else {
+                  slaBadge = '<span class="sla-badge sla-danger" title="Высокий риск срыва окна клиента! Запас всего ' + arrivalBuf + ' мин">🔴 Риск: +' + arrivalBuf + 'м</span>';
+                }
+                return '<div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">' +
+                  '<button class="btn-explain" onclick="showExplanationById(&quot;' + s.task.id + '&quot;, &quot;' + eng.id + '&quot;)">💡 Объяснение</button>' +
+                  '<button class="btn-reassign" onclick="event.stopPropagation(); openReassignModal(&quot;' + eng.id + '&quot;, &quot;' + s.task.id + '&quot;)">⇄ Передать</button>' +
+                  slaBadge +
+                '</div>';
+              })() +
             '</div>' +
           '</div>';
         });
@@ -2094,9 +2556,10 @@
               '<div class="eng-role">' + eng.role + '</div>' +
             '</div>' +
           '</div>' +
-          '<div class="eng-stats">' +
+          '<div class="eng-stats" style="display:flex; flex-direction:column; align-items:flex-end; gap:3px;">' +
             '<div>' + eng.tasks.length + ' заявок &bull; ' + eng.totalKm.toFixed(1) + ' км</div>' +
             '<div style="font-size:10px; color:#666;">в пути: <b>' + eng.totalDriveMin + ' мин</b> (' + tCfg.name.toLowerCase() + ')</div>' +
+            '<button class="btn-print-route" onclick="event.stopPropagation(); openRouteSheetModal(&quot;' + eng.id + '&quot;)">🖨️ Путевой лист</button>' +
           '</div>' +
         '</div>' +
         '<div class="eng-stops" id="stops-' + eng.id + '">' + stopsHtml + '</div>';
@@ -2154,7 +2617,7 @@
         '2. Географическая оптимизация: Ближайший доступный мастер в кластере ' + s.task.district + '. Переезд: ' + s.legKm.toFixed(1) + ' км (дорога: ' + s.legDrive + ' мин от предыдущей точки).\n' +
         '3. Временное окно клиента: ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '. Расчетное прибытие: ' + formatTime(s.arrTime) + ' (гарантированное попадание в слот).\n' +
         '4. Технический регламент: Работы с ' + formatTime(s.startWork) + ' до ' + formatTime(s.endWork) + ' (' + s.task.durationMin + ' мин по утвержденному нормативу ВымпелКом).\n' +
-        '5. Баланс смены: Без превышения лимита смены ' + formatTime(eng.shiftEnd || 1320) + ' (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
+        '5. Баланс смены: Без превышения лимита смены 21:00 (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
         '6. Экономический эффект: Решение минимизирует холостой пробег бригады и исключает вывод дополнительного сотрудника.';
 
       document.getElementById('modalTitle').innerText = '💡 Обоснование решения: Заявка №' + s.task.id;
@@ -2212,7 +2675,7 @@
           else if (s.task.category === 'connection') catName = 'Подключение';
           else if (s.task.category === 'additional_order') catName = 'Дозаказ';
 
-          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до ' + formatTime(eng.shiftEnd || 1320) + '.';
+          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до 21:00.';
 
           const tCfg = getTransportConfig(eng.transport || globalTransportMode);
           rows.push([
