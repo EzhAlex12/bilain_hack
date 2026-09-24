@@ -1626,11 +1626,17 @@
         depotCoords = [55.7001, 37.7690]; // Юных Ленинцев (Восток)
       }
 
-      return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint };
+            const brigadeNames = [];
+      for (const r of requests) {
+        if (r.brigade && !brigadeNames.includes(r.brigade)) {
+          brigadeNames.push(r.brigade);
+        }
+      }
+      return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint, brigadeNames: brigadeNames };
     }
 
     // МОДЕЛИРОВАНИЕ ИНЖЕНЕРОВ
-    function createEngineers(count, depotCoords, isRemote, transportMode) {
+    function createEngineers(count, depotCoords, isRemote, transportMode, brigadeNames) {
       transportMode = transportMode || globalTransportMode;
       const list = [];
       for (let i = 0; i < count; i++) {
@@ -1668,7 +1674,7 @@
 
         list.push({
           id: 'ENG-' + (i + 1),
-          name: 'Инженер ' + (i + 1),
+          name: (typeof brigadeNames !== 'undefined' && brigadeNames && brigadeNames[i]) ? brigadeNames[i] : (['Бригада Соколов', 'Бригада Мельников', 'Бригада Матвеев', 'Бригада Попов', 'Бригада Арташкин', 'Бригада Комарь', 'Бригада Каушнян', 'Бригада Зверев', 'Бригада Перов', 'Бригада Белузин', 'Бригада Гусаковский', 'Бригада Морозов'][i] || ('Бригада ' + (i + 1))),
           role: role,
           transport: transport,
           skills: skills,
@@ -1754,10 +1760,11 @@
       return 'Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж.';
     }
 
-    function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin) {
+    function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames) {
       transportMode = transportMode || globalTransportMode;
       calcTimeMin = calcTimeMin || parseMinutesStr(globalRoutingTime) || 540;
-      const engineers = createEngineers(14, depotCoords, isRemote, transportMode);
+      const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(12, brigadeNames.length) : 12;
+      const engineers = createEngineers(count, depotCoords, isRemote, transportMode, brigadeNames);
       const assignedReqs = new Set();
 
       function runPass(filterFn, maxEngToOpen, passName) {
@@ -1827,8 +1834,9 @@
     }
 
     // BASELINE FIFO
-    function solveBaseline(requests, depotCoords, isRemote) {
-      const engineers = createEngineers(16, depotCoords, isRemote);
+    function solveBaseline(requests, depotCoords, isRemote, brigadeNames) {
+      const count = (brigadeNames && brigadeNames.length > 0) ? brigadeNames.length : 12;
+      const engineers = createEngineers(count, depotCoords, isRemote, 'car', brigadeNames);
       let assigned = 0;
 
       for (const req of requests) {
@@ -2549,9 +2557,32 @@
         if (resp.ok) {
           const data = await resp.json();
           if (data.solution && data.solution.engineers && data.solution.engineers.length > 0) {
+            const defaultBrigades = [
+              'Бригада Соколов', 'Бригада Мельников', 'Бригада Матвеев', 'Бригада Попов',
+              'Бригада Арташкин', 'Бригада Комарь', 'Бригада Каушнян', 'Бригада Зверев',
+              'Бригада Перов', 'Бригада Белузин', 'Бригада Гусаковский', 'Бригада Морозов'
+            ];
+            const namesPool = (fallbackParsed && fallbackParsed.brigadeNames && fallbackParsed.brigadeNames.length > 0)
+              ? fallbackParsed.brigadeNames
+              : defaultBrigades;
+
+            data.solution.engineers.forEach((eng, idx) => {
+              if (!eng.name || eng.name.startsWith('Инженер') || eng.name.startsWith('ENG-')) {
+                eng.name = (idx < namesPool.length) ? namesPool[idx] : ('Бригада ' + (idx + 1));
+              }
+            });
+
+            if (data.baseline && data.baseline.engineers) {
+              data.baseline.engineers.forEach((eng, idx) => {
+                if (!eng.name || eng.name.startsWith('Инженер') || eng.name.startsWith('ENG-')) {
+                  eng.name = (idx < namesPool.length) ? namesPool[idx] : ('Бригада ' + (idx + 1));
+                }
+              });
+            }
+
             return {
               solution: data.solution,
-              baseline: data.baseline || solveBaseline(fallbackParsed.requests, fallbackParsed.depotCoords, fallbackParsed.isRemote),
+              baseline: data.baseline || solveBaseline(fallbackParsed.requests, fallbackParsed.depotCoords, fallbackParsed.isRemote, fallbackParsed.brigadeNames),
               engine: 'Google OR-Tools (Python)',
               ortools_status: data.ortools_status || 'Улучшено Google OR-Tools'
             };
@@ -2602,7 +2633,8 @@
               requests: parsed.requests,
               depotCoords: parsed.depotCoords,
               isRemote: isRemote,
-              timeMin: timeMin
+              timeMin: timeMin,
+              brigadeNames: parsed.brigadeNames
             });
 
             if (ortoolsRes && ortoolsRes.solution) {
@@ -2636,8 +2668,8 @@
           const parsed = parseCsv(session.csvInput);
           const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
           const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
-          const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, session.transportMode || globalTransportMode, timeMin);
-          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+          const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, session.transportMode || globalTransportMode, timeMin, parsed.brigadeNames);
+          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
           const res = {
             solution: fastSol,
             baseline: fastBase,
@@ -2668,8 +2700,8 @@
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
       // ЭТАП 1: Мгновенный быстрый расчёт по 4-Pass (за 20-30 мс)
-      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
-      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
 
       const tabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random()*1000);
       const session = {
@@ -2720,7 +2752,8 @@
             requests: parsed.requests,
             depotCoords: parsed.depotCoords,
             isRemote: isRemote,
-            timeMin: timeMin
+            timeMin: timeMin,
+            brigadeNames: parsed.brigadeNames
           }).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
               session.solutions['ortools'] = ortoolsRes;
@@ -3067,8 +3100,8 @@
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
       // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана
-      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
-      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
       
       session.solutions = {
         'js': {
@@ -3108,7 +3141,8 @@
             requests: parsed.requests,
             depotCoords: parsed.depotCoords,
             isRemote: isRemote,
-            timeMin: timeMin
+            timeMin: timeMin,
+            brigadeNames: parsed.brigadeNames
           }).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
               session.solutions['ortools'] = ortoolsRes;

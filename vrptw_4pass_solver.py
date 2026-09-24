@@ -344,6 +344,13 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
             )
         )
 
+    # Сбор реальных имен бригад из датасета
+    brigade_names: List[str] = []
+    for row in raw_rows:
+        b_name = (row.get("Бригада") or "").strip()
+        if b_name and b_name not in brigade_names:
+            brigade_names.append(b_name)
+
     # Координаты офиса/склада
     depot_coords = DISTRICT_COORDS.get(district_hint, MOSCOW_CENTER)
     if "юных ленинцев" in depot_address.lower():
@@ -353,7 +360,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
     elif "бирюлёвская" in depot_address.lower() or "бирюлевская" in depot_address.lower():
         depot_coords = (55.5976, 37.6690)
 
-    return requests, depot_coords, depot_address
+    return requests, depot_coords, depot_address, brigade_names
 
 
 # ======================================================================================
@@ -365,6 +372,7 @@ def create_engineers_pool(
     depot_coords: Tuple[float, float],
     has_suburbs: bool = False,
     seed: int = 42,
+    brigade_names: Optional[List[str]] = None,
 ) -> List[Engineer]:
     """Генерирует реалистичный пул бригад района:
     - 10-12 инженеров на район (по контрольной выборке)
@@ -374,7 +382,10 @@ def create_engineers_pool(
     engineers: List[Engineer] = []
 
     for k in range(n_engineers):
-        eng_id = f"Инженер-{k+1:02d}"
+        if brigade_names and k < len(brigade_names):
+            eng_id = brigade_names[k]
+        else:
+            eng_id = f"Инженер-{k+1:02d}"
         # Для удалённого Подмосковья (Кашира, Ступино, Домодедово) создаем локальных мастеров
         if has_suburbs and k == 0:
             home = DISTRICT_COORDS["Кашира"]

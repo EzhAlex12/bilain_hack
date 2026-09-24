@@ -70,6 +70,12 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
             )
         )
 
+    brigade_names = []
+    for row in raw_rows:
+        b = (row.get("Бригада") or "").strip()
+        if b and b not in brigade_names:
+            brigade_names.append(b)
+
     depot_coords = solver.DISTRICT_COORDS.get(district_hint, solver.MOSCOW_CENTER)
     if "юных ленинцев" in depot_address.lower():
         depot_coords = (55.7001, 37.7690)
@@ -78,12 +84,13 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
     elif "бирюлёвская" in depot_address.lower() or "бирюлевская" in depot_address.lower():
         depot_coords = (55.5976, 37.6690)
 
-    return requests, depot_coords, depot_address
+    return requests, depot_coords, depot_address, brigade_names
 
 
-def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, n_engineers: int = 11):
+def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, n_engineers: int = 12, brigade_names: list[str] = None):
     has_suburbs = any(r.district in ["Кашира", "Ступино", "Домодедово"] for r in requests)
-    engineers = solver.create_engineers_pool(n_engineers=n_engineers, depot_coords=depot_coords, has_suburbs=has_suburbs)
+    n = max(n_engineers, len(brigade_names)) if brigade_names else n_engineers
+    engineers = solver.create_engineers_pool(n_engineers=n, depot_coords=depot_coords, has_suburbs=has_suburbs, brigade_names=brigade_names)
 
     # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
     opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
@@ -210,7 +217,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
 
         frontend_engineers.append({
             "id": eng.id,
-            "name": eng.id.replace("Инженер-", "Инженер "),
+            "name": eng.id,
             "role": ("🚗 Авто-инженер (Аварийщик)" if "emergency" in eng.skills and eng.transport == "car" else
                      ("🚗 Авто-инженер" if eng.transport == "car" else
                       ("🚲 Вело-инженер" if eng.transport == "bicycle" else "🚶 Пеший специалист"))),
@@ -349,8 +356,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404, f"Файл {target_file} не найден на диске")
                 return
 
-            requests, depot_coords, depot_addr = solver.load_dataset(csv_path)
-            res = run_full_pipeline(requests, depot_coords, depot_addr)
+            requests, depot_coords, depot_addr, brigade_names = solver.load_dataset(csv_path)
+            res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names)
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -389,11 +396,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             try:
-                requests, depot_coords, depot_addr = parse_csv_content(csv_text)
+                requests, depot_coords, depot_addr, brigade_names = parse_csv_content(csv_text)
                 if not requests:
                     self.send_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
                     return
-                res = run_full_pipeline(requests, depot_coords, depot_addr)
+                res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_cors_headers()
