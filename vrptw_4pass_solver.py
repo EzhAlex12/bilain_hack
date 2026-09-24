@@ -203,7 +203,7 @@ def get_osrm_road_distance(c1: Tuple[float, float], c2: Tuple[float, float], tra
     if key in _OSRM_CACHE:
         return _OSRM_CACHE[key]
 
-    k_wind = 1.35 if transport == "car" else (1.20 if transport == "foot" else 1.25)
+    k_wind = {"car": 1.35, "bicycle": 1.15, "foot": 1.20}.get(transport, 1.25)
     return round(haversine_km(c1[0], c1[1], c2[0], c2[1]) * k_wind, 2)
 
 def batch_fetch_osrm_distances(coords: List[Tuple[float, float]], transport: str = "car"):
@@ -212,7 +212,7 @@ def batch_fetch_osrm_distances(coords: List[Tuple[float, float]], transport: str
         return
     import urllib.request
     import ssl
-    ctx = ssl._create_unverified_context()
+    ctx = ssl.create_default_context()
 
     subset = coords[:65]
     coords_str = ";".join(f"{lon:.5f},{lat:.5f}" for lat, lon in subset)
@@ -273,8 +273,9 @@ BK_TYPE_MAP = {
 
 
 def geocode_district_cached(address: str, district: str) -> Tuple[float, float]:
-    """Детерминированное офлайн-геокодирование на основе справочника районов с
-    псевдослучайным рассеиванием в радиусе 1.2 км, чтобы дома не слипались."""
+    """Детерминированное офлайн-геокодирование: координаты точки вычисляются из
+    центра района + псевдослучайное смещение в радиусе 1.2 км на основе MD5-хэша
+    (address + district). Кэша нет — результат воспроизводим при тех же входных данных."""
     center = DISTRICT_COORDS.get(district, MOSCOW_CENTER)
     seed = int(hashlib.md5((address + district).encode("utf-8")).hexdigest()[:8], 16)
     rnd = random.Random(seed)
@@ -510,11 +511,11 @@ def run_4pass_optimization(
     requests: List[Request],
     engineers: List[Engineer],
 ) -> Tuple[List[Route], List[Request]]:
+    """Выполняет 4-проходное иерархическое планирование по приоритетам."""
     # Пакетная подгрузка реального дорожного графа OpenStreetMap (OSRM)
     if requests and engineers:
         sample_coords = [(engineers[0].home_lat, engineers[0].home_lon)] + [(r.lat, r.lon) for r in requests]
         batch_fetch_osrm_distances(sample_coords, engineers[0].transport)
-    """Выполняет 4-проходное иерархическое планирование по приоритетам."""
     # 4 корзины приоритетов
     pass1_emergency = [r for r in requests if r.req_type == "emergency"]
     pass2_connection = [r for r in requests if r.req_type == "connection"]
@@ -627,21 +628,35 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
     }
     tname = type_names.get(r.req_type, r.req_type)
 
-    if r.district in ["Кашира", "Ступино"]:
-        reason = f"Территориальная удалённость района ({r.district}, >95 км от депо). Время на доезд и выполнение работ не укладывается в лимит смены бригад."
-    elif r.is_gigabit:
-        reason = "Требуется квалификация «Гигабитное подключение (GPON)». Сертифицированные инженеры этого профиля полностью загружены до конца дня."
-    elif r.window_start_min >= 1080 or (r.window_start_min >= 960 and r.window_end_min <= 1200):
-        reason = f"Конфликт вечернего окна клиента ({fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)}). Все подходящие бригады в этом секторе уже заняты заказами."
-    elif r.req_type == "emergency":
-        reason = f"Исчерпана пропускная способность авто-аварийщиков. Длительность работ ({r.work_duration_min} мин) и время доезда превышают резерв смены."
-    elif r.req_type in ["extra_order", "repair"]:
-        reason = "Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями."
+    # Фактическая диагностика причины отказа
+    skilled = [e for e in engineers if r.req_type in e.skills]
+    if not skilled:
+        reason = f"Нет инженеров с квалификацией «{r.req_type}» в пуле бригад района."
+    elif all(e.equipment_capacity < r.equipment_demand for e in skilled):
+        reason = (
+            f"Требуемое оборудование ({r.equipment_demand} ед.) превышает вместимость "
+            f"всех доступных транспортных средств."
+        )
+    elif r.window_end_min - r.window_start_min < r.work_duration_min:
+        reason = (
+            f"Временно́е окно клиента ({fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)}) "
+            f"короче норматива выполнения работ ({r.work_duration_min} мин)."
+        )
+    elif r.window_start_min > max(e.shift_end_min for e in skilled) - r.work_duration_min:
+        shift_end = fmt_time(max(e.shift_end_min for e in skilled))
+        reason = (
+            f"Начало окна клиента ({fmt_time(r.window_start_min)}) не позволяет завершить работы "
+            f"до конца смены инженеров ({shift_end})."
+        )
     else:
-        reason = "Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж."
+        reason = (
+            "График активных бригад полностью заполнен более приоритетными заявками "
+            "в данном временно́м интервале. Маршрутные окна несовместимы."
+        )
 
     return (
-        f"  Заявка №{r.id} [{tname}] ({r.district}, окно {fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)})\n    • Причина: {reason}"
+        f"  Заявка №{r.id} [{tname}] ({r.district}, окно {fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)})\n"
+        f"    • Причина: {reason}"
     )
 
 
@@ -784,9 +799,17 @@ def evaluate_dataset(csv_path: str):
     print(f"  ОБРАБОТКА ДАТАСЕТА: {base_name}")
     print("=" * 95)
 
-    requests, depot_coords, depot_addr = load_dataset(csv_path)
-    has_suburbs = "юго-восток" in base_name.lower() or "кашира" in str(requests).lower()
-    engineers = create_engineers_pool(n_engineers=11, depot_coords=depot_coords, has_suburbs=has_suburbs)
+    requests, depot_coords, depot_addr, brigade_names = load_dataset(csv_path)
+    has_suburbs = "юго-восток" in base_name.lower() or any(
+        r.district in ("Кашира", "Ступино", "Домодедово") for r in requests
+    )
+    n_eng = max(11, len(brigade_names)) if brigade_names else 11
+    engineers = create_engineers_pool(
+        n_engineers=n_eng,
+        depot_coords=depot_coords,
+        has_suburbs=has_suburbs,
+        brigade_names=brigade_names or [],
+    )
 
     # 1. Запуск 4-проходной оптимизации (Гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
@@ -794,7 +817,7 @@ def evaluate_dataset(csv_path: str):
     # 2. Оптимизация Google OR-Tools (с гарантированным fallback на допустимое решение)
     opt_routes, ortools_status_str = optimize_routes_with_ortools(opt_routes, time_limit_sec=2)
 
-    # 2. Запуск Baseline (FIFO)
+    # 3. Запуск Baseline (FIFO)
     base_routes, base_dropped = run_baseline_fifo(requests, engineers)
 
     # Метрики
