@@ -4,12 +4,17 @@
 Открытие: http://localhost:8000
 """
 
+import os
+import sys
+
+
+
 import csv
 import io
 import json
 import os
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 # Импортируем классы и алгоритм из нашего решателя
@@ -80,10 +85,15 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     has_suburbs = any(r.district in ["Кашира", "Ступино", "Домодедово"] for r in requests)
     engineers = solver.create_engineers_pool(n_engineers=n_engineers, depot_coords=depot_coords, has_suburbs=has_suburbs)
 
-    # 1. 4-Pass Optimizer
+    # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
     opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
 
-    # 2. Baseline FIFO
+    # 2. Оптимизация через Google OR-Tools (с гарантированным fallback на допустимое решение)
+    ortools_status = '4-Pass Feasible (OR-Tools не установлен)'
+    if solver.HAS_ORTOOLS:
+        opt_routes, ortools_status = solver.optimize_routes_with_ortools(opt_routes, time_limit_sec=1)
+
+    # 3. Baseline FIFO
     base_routes, base_dropped = solver.run_baseline_fifo(requests, engineers)
 
     # Метрики
@@ -162,7 +172,98 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "explanation": solver.explain_dropped(req, engineers)
         })
 
+    # Формируем объект solution в точном формате для веб-фронтенда
+    frontend_engineers = []
+    for idx, r in enumerate(opt_routes):
+        eng = r.engineer
+        color = colors[idx % len(colors)]
+        schedule = []
+        for step_idx, v in enumerate(r.visits, 1):
+            schedule.append({
+                "task": {
+                    "id": v.request.id,
+                    "typeBk": "Глобальная проблема" if v.request.req_type == "emergency" else (
+                        "Подключение" if v.request.req_type == "connection" else (
+                            "Дозаказ" if v.request.req_type == "extra_order" else "Локальная заявка"
+                        )
+                    ),
+                    "typeHd": v.request.address,
+                    "category": "accident" if v.request.req_type == "emergency" else (
+                        "additional_order" if v.request.req_type == "extra_order" else v.request.req_type
+                    ),
+                    "reqSkill": v.request.req_type,
+                    "durationMin": v.request.work_duration_min,
+                    "district": v.request.district,
+                    "address": v.request.address,
+                    "gigabit": "Да" if v.request.is_gigabit else "Нет",
+                    "winStart": v.request.window_start_min,
+                    "winEnd": v.request.window_end_min,
+                    "coords": [v.request.lat, v.request.lon]
+                },
+                "arrTime": v.arrival_min,
+                "startWork": v.service_start_min,
+                "endWork": v.service_end_min,
+                "legKm": v.travel_km,
+                "legDrive": v.travel_min,
+                "explanation": solver.explain_visit(v, eng)
+            })
+
+        frontend_engineers.append({
+            "id": eng.id,
+            "name": eng.id.replace("Инженер-", "Инженер "),
+            "role": ("🚗 Авто-инженер (Аварийщик)" if "emergency" in eng.skills and eng.transport == "car" else
+                     ("🚗 Авто-инженер" if eng.transport == "car" else
+                      ("🚲 Вело-инженер" if eng.transport == "bicycle" else "🚶 Пеший специалист"))),
+            "transport": eng.transport,
+            "color": color,
+            "startCoords": [eng.home_lat, eng.home_lon],
+            "tasks": [s["task"] for s in schedule],
+            "schedule": schedule,
+            "totalKm": round(r.total_km, 1),
+            "totalDriveMin": r.total_travel_min
+        })
+
+    frontend_unassigned = []
+    for req in opt_dropped:
+        expl = solver.explain_dropped(req, [r.engineer for r in opt_routes])
+        reason = expl.split("• Причина: ")[-1].strip() if "• Причина: " in expl else expl
+        frontend_unassigned.append({
+            "req": {
+                "id": req.id,
+                "category": "accident" if req.req_type == "emergency" else (
+                    "additional_order" if req.req_type == "extra_order" else req.req_type
+                ),
+                "typeHd": "Авария на ТКД" if req.req_type == "emergency" else ("Подключение" if req.req_type == "connection" else "Ремонт"),
+                "district": req.district,
+                "address": req.address,
+                "gigabit": "Да" if req.is_gigabit else "Нет",
+                "winStart": req.window_start_min,
+                "winEnd": req.window_end_min,
+                "durationMin": req.work_duration_min,
+                "coords": [req.lat, req.lon]
+            },
+            "reason": reason
+        })
+
+    frontend_solution = {
+        "engineers": frontend_engineers,
+        "unassigned": frontend_unassigned,
+        "totalKm": opt_km,
+        "totalDrive": sum(r.total_travel_min for r in opt_routes),
+        "assignedCount": opt_assigned
+    }
+
+    frontend_baseline = {
+        "totalKm": base_km,
+        "assignedCount": base_assigned,
+        "engineersCount": base_staff
+    }
+
     return {
+        "engine": "Google OR-Tools (VRPTW)" if solver.HAS_ORTOOLS else "4-Pass Solver",
+        "ortools_status": ortools_status,
+        "solution": frontend_solution,
+        "baseline": frontend_baseline,
         "depot": {
             "address": depot_address or "Районный склад/офис",
             "lat": depot_coords[0],
@@ -191,6 +292,16 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
 
 
 class Handler(BaseHTTPRequestHandler):
+    def send_cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_cors_headers()
+        self.end_headers()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
@@ -198,10 +309,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/" or path == "/index.html":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_cors_headers()
             self.end_headers()
             html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
             with open(html_path, "rb") as f:
                 self.wfile.write(f.read())
+            return
+
+        if path == "/api/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_cors_headers()
+            self.end_headers()
+            health_data = {
+                "status": "ok",
+                "has_ortools": solver.HAS_ORTOOLS,
+                "engine": "Google OR-Tools" if solver.HAS_ORTOOLS else "4-Pass Solver"
+            }
+            self.wfile.write(json.dumps(health_data, ensure_ascii=False).encode("utf-8"))
             return
 
         if path == "/api/demo":
@@ -229,6 +354,7 @@ class Handler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_cors_headers()
             self.end_headers()
             self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
             return
@@ -270,17 +396,24 @@ class Handler(BaseHTTPRequestHandler):
                 res = run_full_pipeline(requests, depot_coords, depot_addr)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_cors_headers()
                 self.end_headers()
                 self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
             except Exception as e:
-                self.send_error(500, f"Ошибка обработки: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8"))
             return
 
         self.send_error(404, "Not Found")
 
 
 def run_server(port=8000):
-    server = HTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"\n=======================================================")
     print(f"  ВЕБ-СЕРВИС ПЛАНИРОВАНИЯ МАРШРУТОВ ИНЖЕНЕРОВ ЗАПУЩЕН")
     print(f"  Откройте браузер: http://localhost:{port}")
@@ -293,6 +426,13 @@ def run_server(port=8000):
 
 
 if __name__ == "__main__":
+    venv_python = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python")
+    if os.path.exists(venv_python) and os.path.abspath(sys.executable) != os.path.abspath(venv_python):
+        try:
+            import ortools
+        except ImportError:
+            os.execv(venv_python, [venv_python] + sys.argv)
+
     p = 8000
     if len(sys.argv) > 1 and sys.argv[1].isdigit():
         p = int(sys.argv[1])

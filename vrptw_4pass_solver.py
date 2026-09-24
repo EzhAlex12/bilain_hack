@@ -171,6 +171,75 @@ class Route:
 # 3. Геометрия и вспомогательные функции
 # ======================================================================================
 
+# ======================================================================================
+# КЕШ И КЛИЕНТ РЕАЛЬНОГО ДОРОЖНОГО ГРАФА OSRM
+# ======================================================================================
+
+_OSRM_CACHE: dict = {}
+_OSRM_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".osrm_cache.json")
+
+def load_osrm_cache():
+    global _OSRM_CACHE
+    if os.path.exists(_OSRM_CACHE_FILE):
+        try:
+            with open(_OSRM_CACHE_FILE, "r", encoding="utf-8") as f:
+                _OSRM_CACHE = json.load(f)
+        except Exception:
+            _OSRM_CACHE = {}
+
+def save_osrm_cache():
+    try:
+        with open(_OSRM_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(_OSRM_CACHE, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+load_osrm_cache()
+
+def get_osrm_road_distance(c1: Tuple[float, float], c2: Tuple[float, float], transport: str = "car") -> float:
+    if c1 == c2:
+        return 0.0
+    key = f"{c1[0]:.4f},{c1[1]:.4f}_{c2[0]:.4f},{c2[1]:.4f}_{transport}"
+    if key in _OSRM_CACHE:
+        return _OSRM_CACHE[key]
+
+    k_wind = 1.35 if transport == "car" else (1.20 if transport == "foot" else 1.25)
+    return round(haversine_km(c1[0], c1[1], c2[0], c2[1]) * k_wind, 2)
+
+def batch_fetch_osrm_distances(coords: List[Tuple[float, float]], transport: str = "car"):
+    """Пакетно запрашивает матрицу дорожных расстояний через OSRM Table API и сохраняет в кеш."""
+    if len(coords) < 2:
+        return
+    import urllib.request
+    import ssl
+    ctx = ssl._create_unverified_context()
+
+    subset = coords[:65]
+    coords_str = ";".join(f"{lon:.5f},{lat:.5f}" for lat, lon in subset)
+    profile = "driving" if transport == "car" else ("bike" if transport == "bicycle" else "foot")
+    url = f"https://router.project-osrm.org/table/v1/{profile}/{coords_str}?annotations=distance"
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "BeelineVRP/1.0"})
+        with urllib.request.urlopen(req, timeout=3.5, context=ctx) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("code") == "Ok" and "distances" in data:
+                dist_matrix = data["distances"]
+                for i in range(len(subset)):
+                    for j in range(len(subset)):
+                        if i != j and dist_matrix[i][j] is not None:
+                            c1 = subset[i]
+                            c2 = subset[j]
+                            km = round(dist_matrix[i][j] / 1000.0, 2)
+                            key = f"{c1[0]:.4f},{c1[1]:.4f}_{c2[0]:.4f},{c2[1]:.4f}_{transport}"
+                            _OSRM_CACHE[key] = km
+                save_osrm_cache()
+    except Exception:
+        pass
+
+def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car") -> float:
+    return get_osrm_road_distance((lat1, lon1), (lat2, lon2), transport)
+
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -322,11 +391,20 @@ def create_engineers_pool(
         else:
             # Мастера района стартуют из офиса/склада района
             home = depot_coords
-            transport = "car" if k < 7 else ("transit" if k < 9 else "foot")
+            if k < 5:
+                transport = "car"
+            elif k < 8:
+                transport = "transit"  # 🚌 Общественный транспорт (метро/автобус)
+            elif k < 10:
+                transport = "bicycle"  # 🚲 Велосипед (СИМ)
+            else:
+                transport = "foot"     # 🚶 Пеший специалист
+
             skills = {"connection", "extra_order", "repair"}
             if k < 4:  # 4 мастера с допуском к авариям на ТКД
                 skills.add("emergency")
 
+        cap = 30 if transport == "car" else (18 if transport == "transit" else (14 if transport == "bicycle" else 10))
         engineers.append(
             Engineer(
                 id=eng_id,
@@ -336,7 +414,7 @@ def create_engineers_pool(
                 shift_end_min=22 * 60,  # 08:00 - 22:00
                 transport=transport,
                 skills=skills,
-                equipment_capacity=30 if transport == "car" else 12,
+                equipment_capacity=cap,
             )
         )
     return engineers
@@ -387,7 +465,7 @@ def try_insert_request(route: Route, req: Request) -> Optional[Tuple[int, Visit]
             next_arrival_limit = next_v.service_start_min
 
         # Расчет времени до новой точки
-        d_to = haversine_km(prev_lat, prev_lon, req.lat, req.lon)
+        d_to = road_distance_km(prev_lat, prev_lon, req.lat, req.lon, eng.transport)
         t_to = travel_time_min(d_to, eng.transport)
         arrival = prev_departure + t_to
 
@@ -401,11 +479,11 @@ def try_insert_request(route: Route, req: Request) -> Optional[Tuple[int, Visit]
 
         # Проверка влияния на следующую заявку
         if next_lat is not None:
-            d_from = haversine_km(req.lat, req.lon, next_lat, next_lon)
+            d_from = road_distance_km(req.lat, req.lon, next_lat, next_lon, eng.transport)
             t_from = travel_time_min(d_from, eng.transport)
             if service_end + t_from > next_arrival_limit:
                 continue
-            delta_d = (d_to + d_from) - haversine_km(prev_lat, prev_lon, next_lat, next_lon)
+            delta_d = (d_to + d_from) - road_distance_km(prev_lat, prev_lon, next_lat, next_lon, eng.transport)
         else:
             delta_d = d_to
 
@@ -431,6 +509,10 @@ def run_4pass_optimization(
     requests: List[Request],
     engineers: List[Engineer],
 ) -> Tuple[List[Route], List[Request]]:
+    # Пакетная подгрузка реального дорожного графа OpenStreetMap (OSRM)
+    if requests and engineers:
+        sample_coords = [(engineers[0].home_lat, engineers[0].home_lon)] + [(r.lat, r.lon) for r in requests]
+        batch_fetch_osrm_distances(sample_coords, engineers[0].transport)
     """Выполняет 4-проходное иерархическое планирование по приоритетам."""
     # 4 корзины приоритетов
     pass1_emergency = [r for r in requests if r.req_type == "emergency"]
@@ -441,117 +523,49 @@ def run_4pass_optimization(
     routes: Dict[str, Route] = {eng.id: Route(engineer=eng) for eng in engineers}
     unassigned: List[Request] = []
 
-    # =========================================================================
-    # PASS 1: Аварии на ТКД (Глобальные проблемы)
-    # Назначаем на минимальное число квалифицированных специалистов
-    # =========================================================================
-    for req in pass1_emergency:
-        best_eng_id = None
-        best_insert = None
-        min_km = float("inf")
+    # Универсальная функция назначения по лексикографическому приоритету:
+    # 1. Максимальное число выполненных заявок (проверяем всех инженеров, не сбрасывая заявку)
+    # 2. Минимизация числа задействованного персонала (+1000.0 штраф за открытие нового инженера)
+    # 3. Минимизация суммарного пробега (минимальный delta_km)
+    def assign_pass(bucket: List[Request]):
+        for req in bucket:
+            best_eng_id = None
+            best_insert = None
+            min_cost = float("inf")
 
-        # Ищем среди инженеров с допуском к авариям
-        for eng in engineers:
-            if "emergency" not in eng.skills:
-                continue
-            res = try_insert_request(routes[eng.id], req)
-            if res:
-                pos, visit = res
-                if visit.travel_km < min_km:
-                    min_km = visit.travel_km
-                    best_eng_id = eng.id
-                    best_insert = (pos, visit)
+            for eng in engineers:
+                if req.req_type not in eng.skills:
+                    continue
+                res = try_insert_request(routes[eng.id], req)
+                if res:
+                    pos, visit = res
+                    is_active = len(routes[eng.id].visits) > 0
+                    cost = visit.travel_km if is_active else (1000.0 + visit.travel_km)
+                    if cost < min_cost:
+                        min_cost = cost
+                        best_eng_id = eng.id
+                        best_insert = (pos, visit)
 
-        if best_eng_id and best_insert:
-            pos, visit = best_insert
-            routes[best_eng_id].visits.insert(pos, visit)
-        else:
-            unassigned.append(req)
+            if best_eng_id and best_insert:
+                pos, visit = best_insert
+                routes[best_eng_id].visits.insert(pos, visit)
+            else:
+                unassigned.append(req)
 
-    # =========================================================================
-    # PASS 2: Новые подключения абонентов (FMC / FTTB)
-    # Заполняют основные слоты дня, открывая целевой штат
-    # =========================================================================
-    # Сортируем подключения по началу окна, затем гигабитные
+    # PASS 1: Аварии на ТКД
+    assign_pass(pass1_emergency)
+
+    # PASS 2: Подключения клиентов (сортировка по началу окна, приоритет гигабитным)
     pass2_connection.sort(key=lambda r: (r.window_start_min, not r.is_gigabit))
+    assign_pass(pass2_connection)
 
-    for req in pass2_connection:
-        best_eng_id = None
-        best_insert = None
-        min_km = float("inf")
-
-        for eng in engineers:
-            res = try_insert_request(routes[eng.id], req)
-            if res:
-                pos, visit = res
-                # Предпочитаем инженеров, которые уже задействованы
-                is_active = len(routes[eng.id].visits) > 0
-                cost = visit.travel_km if is_active else (visit.travel_km + 15.0)
-                if cost < min_km:
-                    min_km = cost
-                    best_eng_id = eng.id
-                    best_insert = (pos, visit)
-
-        if best_eng_id and best_insert:
-            pos, visit = best_insert
-            routes[best_eng_id].visits.insert(pos, visit)
-        else:
-            unassigned.append(req)
-
-    # =========================================================================
     # PASS 3: Локальные заявки / Ремонты
-    # СТРОГОЕ ПРАВИЛО: Новых инженеров не привлекаем!
-    # Используем только тех, кто уже на линии (Pass 1 и Pass 2)
-    # =========================================================================
-    active_eng_ids = [eng_id for eng_id, r in routes.items() if len(r.visits) > 0]
-    if not active_eng_ids:
-        active_eng_ids = list(routes.keys())
-
     pass3_repair.sort(key=lambda r: r.window_start_min)
-    for req in pass3_repair:
-        best_eng_id = None
-        best_insert = None
-        min_km = float("inf")
+    assign_pass(pass3_repair)
 
-        for eng_id in active_eng_ids:
-            res = try_insert_request(routes[eng_id], req)
-            if res:
-                pos, visit = res
-                if visit.travel_km < min_km:
-                    min_km = visit.travel_km
-                    best_eng_id = eng_id
-                    best_insert = (pos, visit)
-
-        if best_eng_id and best_insert:
-            pos, visit = best_insert
-            routes[best_eng_id].visits.insert(pos, visit)
-        else:
-            unassigned.append(req)
-
-    # =========================================================================
     # PASS 4: Дозаказы оборудования
-    # Короткие заявки (20 мин), дозабивают окна активных мастеров
-    # =========================================================================
     pass4_extra.sort(key=lambda r: r.window_start_min)
-    for req in pass4_extra:
-        best_eng_id = None
-        best_insert = None
-        min_km = float("inf")
-
-        for eng_id in active_eng_ids:
-            res = try_insert_request(routes[eng_id], req)
-            if res:
-                pos, visit = res
-                if visit.travel_km < min_km:
-                    min_km = visit.travel_km
-                    best_eng_id = eng_id
-                    best_insert = (pos, visit)
-
-        if best_eng_id and best_insert:
-            pos, visit = best_insert
-            routes[best_eng_id].visits.insert(pos, visit)
-        else:
-            unassigned.append(req)
+    assign_pass(pass4_extra)
 
     final_routes = [r for r in routes.values() if len(r.visits) > 0]
     return final_routes, unassigned
@@ -634,6 +648,135 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
 # 9. Запуск и сравнительный анализ по датасетам
 # ======================================================================================
 
+
+def optimize_routes_with_ortools(
+    routes: List[Route],
+    time_limit_sec: int = 2
+) -> Tuple[List[Route], str]:
+    """
+    Полировка маршрутов через Google OR-Tools Constraint Solver (VRPTW).
+    Применяет Guided Local Search.
+    Гарантия допустимости: если за time_limit_sec OR-Tools не находит улучшенного
+    решения или сталкивается со сбоем, гарантированно возвращается исходное
+    допустимое решение (Feasible Solution) 4-проходного алгоритма.
+    """
+    if not HAS_ORTOOLS:
+        return routes, "OR-Tools не установлен (использовано допустимое 4-Pass решение)"
+
+    improved_routes = []
+    any_improved = False
+
+    for route in routes:
+        eng = route.engineer
+        visits = route.visits
+        if len(visits) <= 2:
+            improved_routes.append(route)
+            continue
+
+        n_nodes = len(visits) + 1
+        manager = pywrapcp.RoutingIndexManager(n_nodes, 1, 0)
+        routing = pywrapcp.RoutingModel(manager)
+
+        node_coords = [(eng.home_lat, eng.home_lon)] + [(v.request.lat, v.request.lon) for v in visits]
+        node_durations = [0] + [v.request.work_duration_min for v in visits]
+        node_windows = [(eng.shift_start_min, eng.shift_end_min)] + [(v.request.window_start_min, v.request.window_end_min) for v in visits]
+
+        def dist_callback(from_index, to_index):
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            c1 = node_coords[from_node]
+            c2 = node_coords[to_node]
+            return int(road_distance_km(c1[0], c1[1], c2[0], c2[1], eng.transport) * 1000)
+
+        transit_cb_idx = routing.RegisterTransitCallback(dist_callback)
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_cb_idx)
+
+        def time_callback(from_index, to_index):
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            c1 = node_coords[from_node]
+            c2 = node_coords[to_node]
+            d_km = road_distance_km(c1[0], c1[1], c2[0], c2[1], eng.transport)
+            drive_m = travel_time_min(d_km, eng.transport)
+            service_m = node_durations[from_node]
+            return drive_m + service_m
+
+        time_cb_idx = routing.RegisterTransitCallback(time_callback)
+        routing.AddDimension(time_cb_idx, 1440, 1440, False, "Time")
+        time_dim = routing.GetDimensionOrDie("Time")
+
+        for node_idx, (w_start, w_end) in enumerate(node_windows):
+            if node_idx == 0:
+                time_dim.CumulVar(manager.NodeToIndex(0)).SetRange(eng.shift_start_min, eng.shift_start_min)
+            else:
+                time_dim.CumulVar(manager.NodeToIndex(node_idx)).SetRange(w_start, w_end)
+
+        # Начальное допустимое решение (Warm Start)
+        initial_route = [[i for i in range(1, n_nodes)]]
+        initial_assignment = routing.ReadAssignmentFromRoutes(initial_route, False)
+
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        search_parameters.time_limit.seconds = time_limit_sec
+        search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+
+        solution = None
+        if initial_assignment:
+            solution = routing.SolveFromAssignmentWithParameters(initial_assignment, search_parameters)
+        if not solution:
+            solution = routing.SolveWithParameters(search_parameters)
+
+        if solution and routing.status() in (1, 2):
+            new_sequence = []
+            index = routing.Start(0)
+            while not routing.IsEnd(index):
+                node = manager.IndexToNode(index)
+                if node != 0:
+                    new_sequence.append(visits[node - 1])
+                index = solution.Value(routing.NextVar(index))
+
+            # Пересчет таймингов
+            cur_lat, cur_lon = eng.home_lat, eng.home_lon
+            cur_time = eng.shift_start_min
+            new_visits = []
+            is_valid = True
+
+            for v in new_sequence:
+                req = v.request
+                d_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, eng.transport)
+                t_m = travel_time_min(d_km, eng.transport)
+                arr = cur_time + t_m
+                start = max(arr, req.window_start_min)
+                end = start + req.work_duration_min
+                if start > req.window_end_min or end > eng.shift_end_min:
+                    is_valid = False
+                    break
+                new_visits.append(Visit(
+                    request=req,
+                    arrival_min=arr,
+                    service_start_min=start,
+                    service_end_min=end,
+                    travel_min=t_m,
+                    travel_km=d_km
+                ))
+                cur_lat, cur_lon = req.lat, req.lon
+                cur_time = end
+
+            new_route_km = sum(nv.travel_km for nv in new_visits)
+            if is_valid and new_route_km < route.total_km - 0.01:
+                improved_route = Route(engineer=eng, visits=new_visits)
+                improved_routes.append(improved_route)
+                any_improved = True
+            else:
+                # Оставляем гарантированное допустимое решение
+                improved_routes.append(route)
+        else:
+            # Fallback на допустимое решение
+            improved_routes.append(route)
+
+    status_desc = "Улучшено Google OR-Tools" if any_improved else "Допустимое решение (OR-Tools оптимум совпал с базой или лимит времени)"
+    return improved_routes, status_desc
+
+
 def evaluate_dataset(csv_path: str):
     base_name = os.path.basename(csv_path)
     print("\n" + "=" * 95)
@@ -644,8 +787,11 @@ def evaluate_dataset(csv_path: str):
     has_suburbs = "юго-восток" in base_name.lower() or "кашира" in str(requests).lower()
     engineers = create_engineers_pool(n_engineers=11, depot_coords=depot_coords, has_suburbs=has_suburbs)
 
-    # 1. Запуск 4-проходной оптимизации
+    # 1. Запуск 4-проходной оптимизации (Гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
+
+    # 2. Оптимизация Google OR-Tools (с гарантированным fallback на допустимое решение)
+    opt_routes, ortools_status_str = optimize_routes_with_ortools(opt_routes, time_limit_sec=2)
 
     # 2. Запуск Baseline (FIFO)
     base_routes, base_dropped = run_baseline_fifo(requests, engineers)
@@ -664,6 +810,7 @@ def evaluate_dataset(csv_path: str):
     km_gain = ((base_km - opt_km) / base_km * 100) if base_km > 0 else 0
 
     print(f"Офис/склад района: {depot_addr or 'Автоопределение по району'}")
+    print(f"Статус оптимизатора: {ortools_status_str}")
     print(f"Всего заявок в файле: {len(requests)}")
     print(f"  • Аварии: {sum(1 for r in requests if r.req_type == 'emergency')}")
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")

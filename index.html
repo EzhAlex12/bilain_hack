@@ -611,6 +611,179 @@
     .all-done-icon { font-size: 54px; }
     .all-done-title { font-size: 22px; font-weight: 800; color: #2E7D32; }
     .all-done-desc { font-size: 14px; color: #555; max-width: 440px; line-height: 1.5; }
+    /* ПАНЕЛЬ ВЫБОРА ДВИЖКА ОПТИМИЗАЦИИ */
+    .engine-toolbar {
+      padding: 10px 16px;
+      background: #F8F9FA;
+      border-bottom: 1px solid var(--beeline-border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .engine-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .engine-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--beeline-black);
+    }
+    .backend-status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .engine-btn-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background: #EAEBED;
+      padding: 2px;
+      border-radius: 6px;
+    }
+    .engine-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #444;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .engine-btn:hover {
+      background: rgba(0,0,0,0.05);
+      color: #000;
+    }
+    .engine-btn.active {
+      background: var(--beeline-yellow);
+      color: var(--beeline-black);
+      font-weight: 800;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+
+    /* ОКНО ЗАГРУЗКИ / СПИННЕР ОПТИМИЗАЦИИ */
+    .loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(18, 18, 18, 0.78);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      transition: opacity 0.25s ease;
+    }
+    .loading-overlay.active {
+      display: flex;
+    }
+    .loading-card {
+      background: #FFFFFF;
+      border-radius: 16px;
+      padding: 32px 36px;
+      max-width: 440px;
+      width: 90%;
+      text-align: center;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      border-top: 5px solid var(--beeline-yellow);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes popIn {
+      0% { transform: scale(0.92); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .loading-spinner-box {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .beeline-spinner {
+      width: 52px;
+      height: 52px;
+      border: 4px solid #E0E0E0;
+      border-top: 4px solid var(--beeline-yellow);
+      border-right: 4px solid var(--beeline-black);
+      border-radius: 50%;
+      animation: beelineSpin 0.9s linear infinite;
+    }
+    @keyframes beelineSpin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loading-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--beeline-black);
+      margin-bottom: 6px;
+    }
+    .loading-desc {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+      margin-bottom: 16px;
+    }
+    .loading-bar-track {
+      width: 100%;
+      height: 5px;
+      background: #EAEAEA;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .loading-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--beeline-yellow), #FFA000, var(--beeline-yellow));
+      border-radius: 10px;
+      width: 45%;
+      position: absolute;
+      animation: shimmerBar 1.4s ease-in-out infinite alternate;
+    }
+    @keyframes shimmerBar {
+      0% { left: 0%; width: 25%; }
+      50% { width: 60%; }
+      100% { left: 75%; width: 25%; }
+    }
+    .loading-steps {
+      width: 100%;
+      text-align: left;
+      background: #F8F9FA;
+      border: 1px solid #ECECEC;
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .loading-step-item {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .loading-step-item span {
+      font-weight: 800;
+      font-size: 12px;
+      color: var(--gis-green);
+    }
 </style>
 </head>
 <body>
@@ -699,7 +872,23 @@
         </div>
       </div>
       
-            <!-- ВЫБОР ТИПА ТРАНСПОРТА ИНЖЕНЕРОВ -->
+            <!-- ВЫБОР ДВИЖКА МАРШРУТИЗАЦИИ -->
+      <div class="engine-toolbar">
+        <div class="engine-header">
+          <div class="engine-title">⚙️ Движок решения (VRP):</div>
+          <div class="backend-status-badge" id="engineStatusBadge" style="background: #FFF3E0; color: #E65100;">⏱️ Встроенный 4-Pass</div>
+        </div>
+        <div class="engine-btn-group">
+          <button class="engine-btn" id="btnEngineOrtools" onclick="setEngineMode('ortools')" title="Оптимизация Google OR-Tools через локальный Python бэкенд">
+            ⚡ Google OR-Tools
+          </button>
+          <button class="engine-btn active" id="btnEngineJs" onclick="setEngineMode('js')" title="Встроенный 4-Pass в браузере (мгновенно, офлайн)">
+            ⏱️ Встроенный 4-Pass
+          </button>
+        </div>
+      </div>
+
+      <!-- ВЫБОР ТИПА ТРАНСПОРТА ИНЖЕНЕРОВ -->
       <div class="routing-toolbar">
         <div class="routing-header">
           <div class="routing-title">🗺️ Тип транспорта инженеров:</div>
@@ -836,6 +1025,26 @@
   
   <!-- ДВИЖОК ОПТИМИЗАЦИИ И СИСТЕМА ВКЛАДОК С КАРТАМИ OpenStreetMap -->
   <script>
+
+    function showLoadingOverlay(title, desc) {
+      const el = document.getElementById('loadingOverlay');
+      if (!el) return;
+      if (title) {
+        const tEl = document.getElementById('loadingTitle');
+        if (tEl) tEl.innerText = title;
+      }
+      if (desc) {
+        const dEl = document.getElementById('loadingDesc');
+        if (dEl) dEl.innerText = desc;
+      }
+      el.classList.add('active');
+    }
+
+    function hideLoadingOverlay() {
+      const el = document.getElementById('loadingOverlay');
+      if (el) el.classList.remove('active');
+    }
+
     // ХРАНИЛИЩЕ ВКЛАДОК CSV
     // Каждая вкладка: { id, name, csvInput, solution, baseline, depotCoords }
     let tabSessions = [];
@@ -845,9 +1054,10 @@
     let dgisApiKey = localStorage.getItem('dgis_api_key') || '';
     let routeGeometryCache = {};
 
-    // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, интерфейс ожидает выбора файла)
+    // НАЧАЛЬНЫЙ ДАТАСЕТ (район Восток для демонстрации возможностей и валидации)
+        // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, при запуске открывается окно загрузки файла)
     const INITIAL_CSV_LINES = null;
-
+    
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ (ПОЛНЫЙ ПЕРЕЧЕНЬ ДЛЯ ВСЕХ ОКРУГОВ)
     const DISTRICT_COORDS = {
@@ -915,6 +1125,13 @@
     let markerLayers = [];
 
     // ГЕОДЕЗИЧЕСКИЙ РАСЧЁТ ДИСТАНЦИИ
+        function roadDistanceKm(c1, c2, transport) {
+      transport = transport || globalTransportMode;
+      if (transport === 'mixed') transport = 'car';
+      const cfg = getTransportConfig(transport);
+      return Math.round(haversineKm(c1, c2) * cfg.windingFactor * 10) / 10;
+    }
+
     function haversineKm(c1, c2) {
       const R = 6371;
       const dLat = (c2[0] - c1[0]) * Math.PI / 180;
@@ -1025,6 +1242,51 @@
     }
 
     // ПОЛУЧЕНИЕ РЕАЛЬНОЙ ГЕОМЕТРИИ ДОРОГ ЧЕРЕЗ 2ГИС / OSRM
+    
+    // МУЛЬТИ-ТОЧЕЧНЫЙ ЗАПРОС ДОРОЖНОГО ГРАФА OSRM (1 запрос на весь маршрут бригады)
+    async function fetchFullRouteGeometry(latlngs, transport, eng) {
+      if (!latlngs || latlngs.length < 2) return null;
+      transport = transport || globalTransportMode;
+      if (transport === 'mixed') transport = 'car';
+      const cfg = getTransportConfig(transport);
+
+      const cacheKey = latlngs.map(p => p[0].toFixed(4) + ',' + p[1].toFixed(4)).join(';') + '_' + transport;
+      if (routeGeometryCache[cacheKey]) {
+        return routeGeometryCache[cacheKey];
+      }
+
+      try {
+        const coordsStr = latlngs.map(pt => pt[1].toFixed(5) + ',' + pt[0].toFixed(5)).join(';');
+        const url = 'https://router.project-osrm.org/route/v1/' + cfg.osrmProfile + '/' + coordsStr + '?overview=full&geometries=geojson';
+
+        const ctrl = new AbortController();
+        const tId = setTimeout(() => ctrl.abort(), 4500);
+        const resp = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(tId);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.routes && data.routes[0] && data.routes[0].geometry) {
+            const roadPts = data.routes[0].geometry.coordinates.map(pt => [pt[1], pt[0]]);
+            const roadKm = (data.routes[0].distance || 0) / 1000;
+            const roadMin = Math.round((data.routes[0].duration || 0) / 60);
+
+            const resObj = {
+              points: roadPts,
+              roadKm: roadKm,
+              roadMin: roadMin
+            };
+            routeGeometryCache[cacheKey] = resObj;
+            updateDgisBadgeStatus(true, '🌐 Дорожный граф OSRM активен');
+            return resObj;
+          }
+        }
+      } catch (e) {
+        console.warn('OSRM multi-point routing fallback:', e);
+      }
+      return null;
+    }
+
     async function fetchLegGeometry(c1, c2, transport, timeMin) {
       transport = transport || globalTransportMode;
       if (transport === 'mixed') transport = 'car';
@@ -1329,23 +1591,23 @@
         });
       }
 
-      // Определение депо
-      let depotCoords = [55.7032, 37.7712]; // Юных Ленинцев (Восток) по умолчанию
+      // Определение депо (синхронизировано с vrptw_4pass_solver.py)
+      let depotCoords = [55.7001, 37.7690]; // Юных Ленинцев (Восток) по умолчанию
       const allText = (depotAddress + ' ' + districtHint).toLowerCase();
 
       if (allText.includes('симферопольск') || allText.includes('югоцентр') || allText.includes('даниловск') ||
           allText.includes('академическ') || allText.includes('котловк') || allText.includes('зюзино') ||
           allText.includes('хамовник') || allText.includes('садовник') || allText.includes('гагаринск') ||
           allText.includes('замосквореч') || allText.includes('нагорн')) {
-        depotCoords = [55.6605, 37.6124]; // Симферопольский проезд (Югоцентр)
+        depotCoords = [55.6885, 37.6181]; // Симферопольский проезд (Югоцентр)
       } else if (allText.includes('бирюлев') || allText.includes('домодедово') || allText.includes('кашира') ||
                  allText.includes('ступино') || allText.includes('орехово') || allText.includes('царицыно') ||
                  allText.includes('братеево') || allText.includes('зябликово') || allText.includes('юго-восток')) {
-        depotCoords = [55.5912, 37.6631]; // Бирюлёвская (Юго-восток)
+        depotCoords = [55.5976, 37.6690]; // Бирюлёвская (Юго-восток)
       } else if (allText.includes('ленинцев') || allText.includes('восток') || allText.includes('кузьминк') ||
                  allText.includes('рязанск') || allText.includes('таганск') || allText.includes('текстильщик') ||
                  allText.includes('выхино') || allText.includes('лефортово') || allText.includes('басманн')) {
-        depotCoords = [55.7032, 37.7712]; // Юных Ленинцев (Восток)
+        depotCoords = [55.7001, 37.7690]; // Юных Ленинцев (Восток)
       }
 
       return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint };
@@ -1424,7 +1686,7 @@
 
         for (let j = 0; j < candidateTasks.length; j++) {
           const t = candidateTasks[j];
-          const legKm = haversineKm(curCoords, t.coords);
+          const legKm = roadDistanceKm(curCoords, t.coords, eng.transport);
           const legDrive = travelTimeMin(curCoords, t.coords, eng.transport, curTime);
           kmAcc += legKm;
           driveMinAcc += legDrive;
@@ -1673,22 +1935,17 @@
         poly.bindPopup(`<b>Маршрут: ${eng.name}</b><br>Транспорт: <b>${cfg.icon} ${cfg.name}</b><br>Пробег: <b>${eng.totalKm.toFixed(1)} км</b> | Время в пути: <b>${eng.totalDriveMin} мин</b>`);
         routeLayers.push(poly);
 
-        // АСИНХРОННАЯ ПОДГРУЗКА РЕАЛЬНОГО ДОРОЖНОГО ГРАФА И УЛИЦ 2ГИС / OSRM
+        // АСИНХРОННАЯ ПОДГРУЗКА РЕАЛЬНОГО ДОРОЖНОГО ГРАФА И УЛИЦ OSRM
         (async () => {
           try {
-            const streetPath = [];
-            for (let k = 0; k < latlngs.length - 1; k++) {
-              const p1 = latlngs[k];
-              const p2 = latlngs[k + 1];
-              const segSched = eng.schedule[k] || { arrTime: 540 };
-              const pts = await fetchLegGeometry(p1, p2, transport, segSched.arrTime);
-              if (pts && pts.length > 0) {
-                if (streetPath.length > 0) pts.shift();
-                streetPath.push(...pts);
-              }
-            }
-            if (streetPath.length > 1) {
-              poly.setLatLngs(streetPath);
+            const res = await fetchFullRouteGeometry(latlngs, transport, eng);
+            if (res && res.points && res.points.length > 1) {
+              poly.setLatLngs(res.points);
+              poly.bindPopup(
+                '<b>Маршрут: ' + eng.name + '</b><br>' +
+                'Транспорт: <b>' + cfg.icon + ' ' + cfg.name + '</b><br>' +
+                '🛣️ По дорогам (OSRM): <b>' + res.roadKm.toFixed(1) + ' км</b> | Время: <b>' + res.roadMin + ' мин</b>'
+              );
             }
           } catch (err) {
             console.warn('Street geometry error for eng ' + eng.id, err);
@@ -1734,6 +1991,24 @@
         card.id = 'card-' + eng.id;
 
         let stopsHtml = '';
+        const curSess = getActiveSession();
+        const startAddr = (curSess && curSess.depotAddress) ? curSess.depotAddress : 'Районный склад/офис билайн';
+        const shiftStartStr = formatTime(eng.shiftStart || 540);
+
+        stopsHtml += '<div class="stop-item" style="opacity: 0.95;">' +
+          '<div class="stop-dot" style="background:#0070BA; border-color:#FFF;"></div>' +
+          '<div class="stop-body">' +
+            '<div class="stop-head">' +
+              '<span>🏢 Старт: Склад района</span>' +
+              '<span class="stop-tag" style="background:#0070BA;">Выезд ' + shiftStartStr + '</span>' +
+            '</div>' +
+            '<div class="stop-addr">' + startAddr + '</div>' +
+            '<div class="stop-details">' +
+              '<span>📦 Получение запаса оборудования на смену</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+
         eng.schedule.forEach((s, stepIdx) => {
           let tagClass = 'tag-repair';
           let tagText = 'Ремонт';
@@ -1751,7 +2026,7 @@
               '<div class="stop-addr">' + s.task.address + ' (' + s.task.district + ')</div>' +
               '<div class="stop-details">' +
                 '<span>⏱ Прибытие: <b>' + formatTime(s.arrTime) + '</b></span>' +
-                (() => { const c = getTransportConfig(eng.transport || globalTransportMode); return '<span>' + c.icon + ' Дорога: ' + s.legDrive + ' мин</span>'; })() +
+                (() => { const c = getTransportConfig(eng.transport || globalTransportMode); const lbl = stepIdx === 0 ? 'Дорога от склада' : 'Дорога'; return '<span>' + c.icon + ' ' + lbl + ': ' + s.legDrive + ' мин (' + s.legKm.toFixed(1) + ' км)</span>'; })() +
                 '<span>⚙️ Работа: ' + s.task.durationMin + ' мин</span>' +
               '</div>' +
               '<button class="btn-explain" onclick="showExplanationById(&quot;' + s.task.id + '&quot;, &quot;' + eng.id + '&quot;)">💡 Объяснение диспетчеру</button>' +
@@ -2153,7 +2428,7 @@
 
       for (let i = 0; i < eng.tasks.length; i++) {
         const t = eng.tasks[i];
-        const legKm = haversineKm(curCoords, t.coords);
+        const legKm = roadDistanceKm(curCoords, t.coords, eng.transport);
         const legDrive = travelTimeMin(curCoords, t.coords, eng.transport, curTime);
         kmAcc += legKm;
         driveMinAcc += legDrive;
@@ -2196,7 +2471,177 @@
     }
 
     // СИСТЕМА ВКЛАДОК ДЛЯ КАЖДОГО CSV
-    function addTabSession(name, csvInput) {
+    let globalEngineMode = 'js'; // По умолчанию надежный мгновенный встроенный движок (JS)
+
+    function syncEngineUI(mode, statusText) {
+      globalEngineMode = mode;
+      const bOr = document.getElementById('btnEngineOrtools');
+      const bJs = document.getElementById('btnEngineJs');
+      if (bOr) bOr.classList.toggle('active', mode === 'ortools');
+      if (bJs) bJs.classList.toggle('active', mode === 'js');
+
+      const badge = document.getElementById('engineStatusBadge');
+      if (!badge) return;
+
+      if (mode === 'ortools') {
+        badge.style.background = '#E8F5E9';
+        badge.style.color = '#2E7D32';
+        badge.innerHTML = statusText || '⚡ Google OR-Tools';
+      } else {
+        badge.style.background = '#FFF3E0';
+        badge.style.color = '#E65100';
+        badge.innerHTML = statusText || '⏱️ Встроенный 4-Pass';
+      }
+    }
+
+    async function checkBackendAlive() {
+      const endpoints = window.location.origin.startsWith('http')
+        ? ['/api/health', 'http://localhost:8000/api/health', 'http://127.0.0.1:8000/api/health']
+        : ['http://localhost:8000/api/health', 'http://127.0.0.1:8000/api/health'];
+
+      for (const ep of endpoints) {
+        try {
+          const ctrl = new AbortController();
+          const tId = setTimeout(() => ctrl.abort(), 2000);
+          const r = await fetch(ep, { signal: ctrl.signal });
+          clearTimeout(tId);
+          if (r.ok) {
+            const data = await r.json().catch(() => ({}));
+            const uploadUrl = ep.replace('/api/health', '/api/upload');
+            return { uploadUrl: uploadUrl, hasOrtools: Boolean(data.has_ortools !== false) };
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    async function fetchOrtoolsSolution(csvText, fallbackParsed) {
+      const backend = await checkBackendAlive();
+      if (!backend || !backend.uploadUrl) return null;
+
+      try {
+        const ctrl = new AbortController();
+        const tId = setTimeout(() => ctrl.abort(), 35000);
+        const resp = await fetch(backend.uploadUrl, {
+          method: 'POST',
+          body: csvText,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          signal: ctrl.signal
+        });
+        clearTimeout(tId);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.solution && data.solution.engineers && data.solution.engineers.length > 0) {
+            return {
+              solution: data.solution,
+              baseline: data.baseline || solveBaseline(fallbackParsed.requests, fallbackParsed.depotCoords, fallbackParsed.isRemote),
+              engine: 'Google OR-Tools (Python)',
+              ortools_status: data.ortools_status || 'Улучшено Google OR-Tools'
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('Backend upload failed, using 4-Pass fallback:', e);
+      }
+      return null;
+    }
+
+    async function setEngineMode(mode) {
+      const session = getActiveSession();
+
+      if (mode === 'ortools') {
+        // 1. Если уже есть вычисленное решение OR-Tools в кеше текущей вкладки — МГНОВЕННО (0 мс) переключаем
+        if (session && session.solutions && session.solutions['ortools']) {
+          const cached = session.solutions['ortools'];
+          session.solution = cached.solution;
+          session.baseline = cached.baseline;
+          session.engine = cached.engine;
+          session.ortools_status = cached.ortools_status;
+          renderActiveSession();
+          return;
+        }
+
+        // 2. Если в кеше нет — проверяем бэкенд
+        const backend = await checkBackendAlive();
+        if (!backend) {
+          alert('Локальный Python-сервер не запущен на порту 8000. Запустите в терминале: python3 app.py. Сейчас активен встроенный 4-Pass.');
+          syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
+          return;
+        }
+        if (!backend.hasOrtools) {
+          alert('Сервер запущен, но библиотека ortools не установлена в этом окружении Python. Запустите: .venv/bin/python app.py. Сейчас активен встроенный 4-Pass.');
+          syncEngineUI('js', '⏱️ 4-Pass (OR-Tools не найден)');
+          return;
+        }
+
+        if (session && session.csvInput) {
+          const parsed = parseCsv(session.csvInput);
+          const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+          const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
+
+          syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
+          try {
+            const ortoolsRes = await fetchOrtoolsSolution(session.csvInput, {
+              requests: parsed.requests,
+              depotCoords: parsed.depotCoords,
+              isRemote: isRemote,
+              timeMin: timeMin
+            });
+
+            if (ortoolsRes && ortoolsRes.solution) {
+              if (!session.solutions) session.solutions = {};
+              session.solutions['ortools'] = ortoolsRes;
+              session.solution = ortoolsRes.solution;
+              session.baseline = ortoolsRes.baseline;
+              session.engine = ortoolsRes.engine;
+              session.ortools_status = ortoolsRes.ortools_status;
+              session.originalSolution = JSON.parse(JSON.stringify(ortoolsRes.solution));
+              renderActiveSession();
+            } else {
+              syncEngineUI('js', '⏱️ 4-Pass (бэкенд вернул ошибку)');
+            }
+          } catch (err) {
+            syncEngineUI('js', '⏱️ 4-Pass (ошибка OR-Tools)');
+          }
+        } else {
+          syncEngineUI('ortools', '⚡ OR-Tools подключен');
+        }
+      } else {
+        // Режим 'js'
+        if (session && session.solutions && session.solutions['js']) {
+          const cached = session.solutions['js'];
+          session.solution = cached.solution;
+          session.baseline = cached.baseline;
+          session.engine = cached.engine;
+          session.ortools_status = cached.ortools_status;
+          renderActiveSession();
+        } else if (session && session.csvInput) {
+          const parsed = parseCsv(session.csvInput);
+          const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+          const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
+          const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, session.transportMode || globalTransportMode, timeMin);
+          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+          const res = {
+            solution: fastSol,
+            baseline: fastBase,
+            engine: 'Встроенный 4-Pass (JS)',
+            ortools_status: 'Допустимое решение (4-Pass)'
+          };
+          if (!session.solutions) session.solutions = {};
+          session.solutions['js'] = res;
+          session.solution = fastSol;
+          session.baseline = fastBase;
+          session.engine = res.engine;
+          session.ortools_status = res.ortools_status;
+          renderActiveSession();
+        } else {
+          syncEngineUI('js', '⏱️ Встроенный 4-Pass');
+        }
+      }
+    }
+
+    async function addTabSession(name, csvInput) {
       const parsed = parseCsv(csvInput);
       if (!parsed || !parsed.requests.length) {
         alert('Не удалось распознать заявки в файле ' + name);
@@ -2205,29 +2650,89 @@
 
       const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
-      const sol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
-      const base = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+
+      // ЭТАП 1: Мгновенный быстрый расчёт по 4-Pass (за 20-30 мс)
+      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
 
       const tabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random()*1000);
       const session = {
         id: tabId,
         name: name,
         csvInput: csvInput,
-        solution: sol,
-        baseline: base,
+        solution: fastSol,
+        baseline: fastBase,
         depotCoords: parsed.depotCoords,
+        depotAddress: parsed.depotAddress || 'Районный офис/склад билайн',
         reqCount: parsed.requests.length,
         transportMode: globalTransportMode,
-        calcTime: globalRoutingTime
+        calcTime: globalRoutingTime,
+        engine: 'Встроенный 4-Pass (JS)',
+        ortools_status: 'Допустимое решение (4-Pass)',
+        solutions: {
+          'js': {
+            solution: fastSol,
+            baseline: fastBase,
+            engine: 'Встроенный 4-Pass (JS)',
+            ortools_status: 'Допустимое решение (4-Pass)'
+          },
+          'ortools': null
+        }
       };
 
-      session.originalSolution = JSON.parse(JSON.stringify(sol));
+      session.originalSolution = JSON.parse(JSON.stringify(fastSol));
       tabSessions.push(session);
       renderTabs();
-      switchTab(tabId);
+      switchTab(tabId); // Вкладка, карта, инженеры и KPI выводятся МГНОВЕННО БЕЗ СПИННЕРА!
+
+      // ЭТАП 2: Если активен режим OR-Tools — запускаем оптимизацию в фоне (без блокировки экрана)
+      if (globalEngineMode === 'ortools') {
+        checkBackendAlive().then(backend => {
+          if (!backend || !backend.hasOrtools) {
+            syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
+            return;
+          }
+
+          const badge = document.getElementById('engineStatusBadge');
+          if (badge && activeTabId === tabId) {
+            badge.style.background = '#E1F5FE';
+            badge.style.color = '#0277BD';
+            badge.innerHTML = '🔄 Оптимизация OR-Tools...';
+          }
+
+          fetchOrtoolsSolution(csvInput, {
+            requests: parsed.requests,
+            depotCoords: parsed.depotCoords,
+            isRemote: isRemote,
+            timeMin: timeMin
+          }).then(ortoolsRes => {
+            if (ortoolsRes && ortoolsRes.solution) {
+              session.solutions['ortools'] = ortoolsRes;
+              if (activeTabId === tabId && globalEngineMode === 'ortools') {
+                session.solution = ortoolsRes.solution;
+                session.baseline = ortoolsRes.baseline;
+                session.engine = ortoolsRes.engine;
+                session.ortools_status = ortoolsRes.ortools_status;
+                session.originalSolution = JSON.parse(JSON.stringify(ortoolsRes.solution));
+                renderActiveSession();
+                syncEngineUI('ortools', '⚡ ' + (ortoolsRes.ortools_status || 'OR-Tools завершен'));
+              }
+            } else {
+              if (activeTabId === tabId) {
+                syncEngineUI('js', '⏱️ 4-Pass (бэкенд вернул ошибку)');
+              }
+            }
+          }).catch(err => {
+            console.warn('OR-Tools background error:', err);
+            if (activeTabId === tabId) {
+              syncEngineUI('js', '⏱️ 4-Pass (ошибка OR-Tools)');
+            }
+          });
+        });
+      }
+
       return session;
     }
-
     function switchTab(tabId) {
       activeTabId = tabId;
       const s = getActiveSession();
@@ -2332,7 +2837,12 @@
         setTimeout(() => mapInstance.invalidateSize(), 50);
       }
 
-      document.getElementById('activeFileName').innerText = session.name;
+      document.getElementById('activeFileName').innerText = session.name + (session.engine ? ' [' + session.engine + ']' : '');
+      if (session.engine && session.engine.includes('OR-Tools')) {
+        syncEngineUI('ortools', session.ortools_status || '⚡ Google OR-Tools');
+      } else {
+        syncEngineUI('js', session.ortools_status || '⏱️ Встроенный 4-Pass');
+      }
       if (session.transportMode) {
         globalTransportMode = session.transportMode;
         document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
@@ -2389,35 +2899,40 @@
 
     function readAndAddCsv(file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const buffer = e.target.result;
-        const bytes = new Uint8Array(buffer);
-        let text = '';
-
-        // Проверяем: строгий UTF-8 без ошибок
+      reader.onload = async (e) => {
         try {
-          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-          text = utf8Decoder.decode(bytes);
-        } catch (utfErr) {
-          // Если файл в кодировке Windows-1251 (стандарт Excel в РФ)
-          try {
-            const cp1251Decoder = new TextDecoder('windows-1251');
-            text = cp1251Decoder.decode(bytes);
-          } catch (cpErr) {
-            text = decodeWindows1251(bytes);
-          }
-        }
+          const buffer = e.target.result;
+          const bytes = new Uint8Array(buffer);
+          let text = '';
 
-        // Страховка: если декодирование дало знаки вопроса-ромбики, принудительно берем CP1251
-        if (text.includes('\uFFFD')) {
           try {
-            text = new TextDecoder('windows-1251').decode(bytes);
-          } catch (_) {
-            text = decodeWindows1251(bytes);
+            const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+            text = utf8Decoder.decode(bytes);
+          } catch (utfErr) {
+            try {
+              const cp1251Decoder = new TextDecoder('windows-1251');
+              text = cp1251Decoder.decode(bytes);
+            } catch (cpErr) {
+              text = decodeWindows1251(bytes);
+            }
           }
-        }
 
-        addTabSession(file.name, text);
+          if (text.includes('�')) {
+            try {
+              text = new TextDecoder('windows-1251').decode(bytes);
+            } catch (_) {
+              text = decodeWindows1251(bytes);
+            }
+          }
+
+          await addTabSession(file.name, text);
+        } catch (err) {
+          console.error('File add error:', err);
+          alert('Ошибка при обработке файла: ' + err.message);
+        }
+      };
+      reader.onerror = () => {
+        alert('Не удалось прочитать файл');
       };
       reader.readAsArrayBuffer(file);
     }
@@ -2443,7 +2958,7 @@
     // ==========================================
     // ФУНКЦИИ УПРАВЛЕНИЯ НАВИГАЦИЕЙ И 2ГИС API
     // ==========================================
-    function setTransportMode(mode) {
+    async function setTransportMode(mode) {
       globalTransportMode = mode;
       document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
       const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
@@ -2455,7 +2970,7 @@
         session.transportMode = mode;
       }
       updateTrafficBadge();
-      recalculateWithRouting(true);
+      await recalculateWithRouting(true);
     }
 
     function onRoutingTimeChanged(val) {
@@ -2467,11 +2982,11 @@
       updateTrafficBadge();
     }
 
-    function setTimePreset(timeStr) {
+    async function setTimePreset(timeStr) {
       const inp = document.getElementById('routingTimeInput');
       if (inp) inp.value = timeStr;
       onRoutingTimeChanged(timeStr);
-      recalculateWithRouting(true);
+      await recalculateWithRouting(true);
     }
 
     function updateTrafficBadge() {
@@ -2483,10 +2998,10 @@
       const cfg = getTransportConfig(globalTransportMode);
       if (cfg.ignoreTraffic) {
         badge.className = 'traffic-indicator-badge free';
-        badge.innerText = `🚦 ${globalRoutingTime}: ${cfg.icon} Без заторов (0% задержек)`;
+        badge.innerText = '🚦 ' + globalRoutingTime + ': ' + cfg.icon + ' Без заторов (0% задержек)';
       } else {
         badge.className = 'traffic-indicator-badge ' + tr.cssClass;
-        badge.innerText = `🚦 ${globalRoutingTime}: ${tr.desc}`;
+        badge.innerText = '🚦 ' + globalRoutingTime + ': ' + tr.desc;
       }
     }
 
@@ -2505,14 +3020,14 @@
       }
     }
 
-    function applyDgisApiKey() {
+    async function applyDgisApiKey() {
       const inp = document.getElementById('dgisApiKeyInput');
       dgisApiKey = (inp ? inp.value : '').trim();
       localStorage.setItem('dgis_api_key', dgisApiKey);
       routeGeometryCache = {};
       updateDgisBadgeStatus(Boolean(dgisApiKey), dgisApiKey ? '2ГИС API Ключ сохранён' : '2ГИС / OSRM Роутер');
       alert(dgisApiKey ? '✅ API Ключ 2ГИС сохранён. Теперь расчёты будут обращаться напрямую к routing.api.2gis.com!' : 'Ключ 2ГИС очищен. Используется открытый дорожный граф OSRM.');
-      recalculateWithRouting(false);
+      await recalculateWithRouting(false);
     }
 
     function updateDgisBadgeStatus(is2gis, text) {
@@ -2522,7 +3037,7 @@
       if (txt) txt.innerText = text;
     }
 
-    function recalculateWithRouting(silent) {
+    async function recalculateWithRouting(silent) {
       const session = getActiveSession();
       if (!session) {
         if (!silent) alert('Пожалуйста, выберите или загрузите CSV-файл заявок.');
@@ -2535,17 +3050,66 @@
       const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
-      session.solution = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
-      session.baseline = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+      // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана
+      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+      
+      session.solutions = {
+        'js': {
+          solution: fastSol,
+          baseline: fastBase,
+          engine: 'Встроенный 4-Pass (JS)',
+          ortools_status: 'Допустимое решение (4-Pass)'
+        },
+        'ortools': null
+      };
+
+      session.solution = fastSol;
+      session.baseline = fastBase;
+      session.engine = 'Встроенный 4-Pass (JS)';
+      session.ortools_status = 'Допустимое решение (4-Pass)';
       session.transportMode = globalTransportMode;
       session.calcTime = globalRoutingTime;
-
+      session.originalSolution = JSON.parse(JSON.stringify(fastSol));
       renderActiveSession();
+
+      // 2. Если выбран режим OR-Tools — запускаем в фоне
+      if (globalEngineMode === 'ortools') {
+        checkBackendAlive().then(backend => {
+          if (!backend || !backend.hasOrtools) {
+            syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
+            return;
+          }
+
+          const badge = document.getElementById('engineStatusBadge');
+          if (badge) {
+            badge.style.background = '#E1F5FE';
+            badge.style.color = '#0277BD';
+            badge.innerHTML = '🔄 Оптимизация OR-Tools...';
+          }
+
+          fetchOrtoolsSolution(session.csvInput, {
+            requests: parsed.requests,
+            depotCoords: parsed.depotCoords,
+            isRemote: isRemote,
+            timeMin: timeMin
+          }).then(ortoolsRes => {
+            if (ortoolsRes && ortoolsRes.solution) {
+              session.solutions['ortools'] = ortoolsRes;
+              if (globalEngineMode === 'ortools' && getActiveSession() === session) {
+                session.solution = ortoolsRes.solution;
+                session.baseline = ortoolsRes.baseline;
+                session.engine = ortoolsRes.engine;
+                session.ortools_status = ortoolsRes.ortools_status;
+                session.originalSolution = JSON.parse(JSON.stringify(ortoolsRes.solution));
+                renderActiveSession();
+              }
+            }
+          }).catch(() => {});
+        });
+      }
     }
 
-    // ==========================================
-    // МОДАЛЬНОЕ ОКНО НЕВЫПОЛНЕННЫХ ЗАЯВОК
-    // ==========================================
     function openUnassignedModal() {
       const session = getActiveSession();
       if (!session || !session.solution) {
@@ -2632,15 +3196,48 @@
 
 
 
-    window.onload = function() {
-      if (tabSessions.length === 0 && INITIAL_CSV_LINES) {
-        const rawText = Array.isArray(INITIAL_CSV_LINES) ? INITIAL_CSV_LINES.join(String.fromCharCode(10)) : INITIAL_CSV_LINES;
-        addTabSession('Восток (Синтетический)', rawText);
-      }
+    window.onload = async function() {
       renderTabs();
       renderActiveSession();
+
+      // Честная проверка бэкенда при запуске страницы:
+      // Если бэкенд не запущен — остаемся на Встроенном 4-Pass (JS)
+      // Если бэкенд запущен — подключаем OR-Tools
+      try {
+        const backend = await checkBackendAlive();
+        if (backend && backend.hasOrtools) {
+          syncEngineUI('ortools', '⚡ OR-Tools подключен');
+          const bOr = document.getElementById('btnEngineOrtools');
+          if (bOr) bOr.title = 'Оптимизация Google OR-Tools через локальный Python бэкенд (подключен)';
+        } else {
+          syncEngineUI('js', '⏱️ Встроенный 4-Pass (офлайн)');
+          const bOr = document.getElementById('btnEngineOrtools');
+          if (bOr) bOr.title = 'Локальный Python-бэкенд не запущен (запустите: python3 app.py)';
+        }
+      } catch (_) {
+        syncEngineUI('js', '⏱️ Встроенный 4-Pass (офлайн)');
+      }
     };
   </script>
+
+  <!-- ОКНО ЗАГРУЗКИ / ПРЕЛОАДЕР РАСЧЁТА МАРШРУТОВ -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-card">
+      <div class="loading-spinner-box">
+        <div class="beeline-spinner"></div>
+      </div>
+      <div class="loading-title" id="loadingTitle">Оптимизация маршрутов инженеров</div>
+      <div class="loading-desc" id="loadingDesc">Построение расписания и расчёт временных окон (VRP-TW-S)...</div>
+      <div class="loading-bar-track">
+        <div class="loading-bar-fill"></div>
+      </div>
+      <div class="loading-steps">
+        <div class="loading-step-item"><span>✓</span> Кластеризация и геокодирование заявок</div>
+        <div class="loading-step-item"><span>⚡</span> Назначение инженеров с учётом квалификаций</div>
+        <div class="loading-step-item"><span>🗺️</span> Минимизация холостого пробега и времени в пути</div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
     
