@@ -120,16 +120,55 @@
     /* ОСНОВНОЙ КОНТЕЙНЕР */
     .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
     
-    /* ПУСТОЕ СОСТОЯНИЕ (ЕСЛИ ВСЕ ВКЛАДКИ ЗАКРЫТЫ) */
+    /* ПУСТОЕ СОСТОЯНИЕ (ПО УМОЛЧАНИЮ / ЕСЛИ ВСЕ ВКЛАДКИ ЗАКРЫТЫ) */
     .empty-state {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-      background: #FAFAFA; display: none; flex-direction: column;
-      align-items: center; justify-content: center; z-index: 400; gap: 16px;
+      background: #F4F5F7; display: none; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 400; padding: 24px;
     }
     .empty-state.visible { display: flex; }
-    .empty-icon { font-size: 54px; }
-    .empty-title { font-size: 20px; font-weight: 700; color: #333; }
-    .empty-desc { font-size: 14px; color: #777; max-width: 420px; text-align: center; line-height: 1.5; }
+    .upload-card {
+      background: #FFFFFF;
+      border: 2px dashed #CCD0D5;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 580px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+      transition: all 0.25s ease;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    .upload-card:hover {
+      border-color: var(--beeline-yellow);
+      background: #FFFDF5;
+      box-shadow: 0 8px 30px rgba(255, 204, 0, 0.18);
+      transform: translateY(-2px);
+    }
+    .upload-icon-circle {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: #FFF9D2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin-bottom: 4px;
+      border: 2px solid var(--beeline-yellow);
+    }
+    .empty-title { font-size: 20px; font-weight: 800; color: var(--beeline-black); }
+    .empty-desc { font-size: 13px; color: #666; max-width: 450px; text-align: center; line-height: 1.5; }
+    .upload-formats-hint {
+      font-size: 11px;
+      color: #888;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
     
     /* БОКОВАЯ ПАНЕЛЬ */
     .sidebar {
@@ -159,6 +198,186 @@
     .badge-green { background: #E8F5E9; color: #0070BA; }
     .badge-yellow { background: #FFF9C4; color: #F57F17; }
     
+        
+    /* ПАНЕЛЬ НАВИГАЦИИ 2ГИС И ТРАНСПОРТА */
+    .routing-toolbar {
+      padding: 12px 16px;
+      background: #F8F9FA;
+      border-bottom: 1px solid var(--beeline-border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .routing-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .routing-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--beeline-black);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .routing-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      background: #E8F5E9;
+      color: #2E7D32;
+      border: 1px solid #C8E6C9;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #43A047;
+      display: inline-block;
+    }
+    .status-dot.yellow { background: #FB8C00; }
+    .routing-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #555;
+      margin-bottom: 4px;
+      display: block;
+    }
+    .transport-btn-group {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      background: #EAEBED;
+      padding: 2px;
+      border-radius: 6px;
+    }
+    .transport-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 2px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #444;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .transport-btn:hover {
+      background: rgba(0,0,0,0.05);
+      color: #000;
+    }
+    .transport-btn.active {
+      background: var(--beeline-yellow);
+      color: var(--beeline-black);
+      font-weight: 800;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .time-selector-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .routing-time-input {
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid #CCC;
+      border-radius: 4px;
+      font-weight: 700;
+      background: #FFF;
+      color: #111;
+      width: 82px;
+    }
+    .btn-time-preset {
+      background: #FFF;
+      border: 1px solid var(--beeline-border);
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #333;
+      transition: all 0.15s;
+    }
+    .btn-time-preset:hover {
+      background: #FFF9C4;
+      border-color: #FBC02D;
+    }
+    .traffic-indicator-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .traffic-indicator-badge.peak { background: #FFEBEE; color: #C62828; border: 1px solid #FFCDD2; }
+    .traffic-indicator-badge.day { background: #FFF8E1; color: #F57F17; border: 1px solid #FFE082; }
+    .traffic-indicator-badge.free { background: #E8F5E9; color: #2E7D32; border: 1px solid #C8E6C9; }
+    .dgis-key-block {
+      border: 1px dashed #DDD;
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: #FFF;
+    }
+    .dgis-key-toggle {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #444;
+    }
+    .dgis-key-fields {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .dgis-key-hint {
+      font-size: 10px;
+      color: #777;
+      line-height: 1.3;
+    }
+    .btn-save-key {
+      background: var(--beeline-black);
+      color: #FFF;
+      border: none;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-recalculate-routing {
+      background: var(--beeline-black);
+      color: var(--beeline-yellow);
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+      margin-top: 2px;
+    }
+    .btn-recalculate-routing:hover {
+      background: #2D2D2D;
+      transform: translateY(-1px);
+    }
+
         /* ПАНЕЛЬ УПРАВЛЕНИЯ ИНЦИДЕНТАМИ */
     .events-toolbar {
       padding: 12px 16px; background: #FFFDF5; border-bottom: 1px solid #FFE082;
@@ -293,7 +512,106 @@
     .modal-head h3 { font-size: 16px; font-weight: 700; }
     .modal-close { font-size: 20px; cursor: pointer; border: none; background: transparent; font-weight: 700; color: #888; }
     .modal-body { font-size: 13px; line-height: 1.5; color: #333; max-height: 400px; overflow-y: auto; white-space: pre-wrap; background: #F9F9F9; padding: 12px; border-radius: 6px; }
-  </style>
+      /* КНОПКА НЕВЫПОЛНЕННЫХ ЗАЯВОК */
+    .btn-unassigned {
+      background: #FFF;
+      border: 1px solid #FFCDD2;
+      color: #C62828;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .btn-unassigned:hover {
+      background: #FFEBEE;
+      border-color: #EF5350;
+      transform: translateY(-1px);
+    }
+    .btn-unassigned.all-done {
+      border-color: #C8E6C9;
+      color: #2E7D32;
+    }
+    .btn-unassigned.all-done:hover {
+      background: #E8F5E9;
+      border-color: #43A047;
+    }
+    .unassigned-badge {
+      background: #D32F2F;
+      color: #FFF;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 1px 7px;
+      border-radius: 10px;
+    }
+    .btn-unassigned.all-done .unassigned-badge {
+      background: #2E7D32;
+    }
+    .modal-box-large {
+      width: 720px;
+      max-width: 92%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-box-large .modal-body {
+      max-height: calc(85vh - 75px);
+      overflow-y: auto;
+    }
+    .unassigned-card {
+      background: #FFF;
+      border: 1px solid #E0E0E0;
+      border-left: 4px solid #E53935;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .unassigned-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .unassigned-card-meta {
+      font-size: 11px;
+      color: #555;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .unassigned-reason-box {
+      background: #FFEBEE;
+      border: 1px solid #FFCDD2;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #B71C1C;
+      line-height: 1.4;
+      margin-top: 4px;
+    }
+    .all-done-box {
+      text-align: center;
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .all-done-icon { font-size: 54px; }
+    .all-done-title { font-size: 22px; font-weight: 800; color: #2E7D32; }
+    .all-done-desc { font-size: 14px; color: #555; max-width: 440px; line-height: 1.5; }
+</style>
 </head>
 <body>
 
@@ -314,7 +632,10 @@
     
     <!-- КНОПКА ЗАГРУЗИТЬ CSV -->
     <div class="header-actions">
-      <button class="btn-download" onclick="downloadScheduleTable()" title="Скачать полное расписание всех инженеров в CSV (Excel)">
+      <button class="btn-unassigned" id="btnUnassigned" style="display: none;" onclick="openUnassignedModal()" title="Список невыполненных заявок и причины невыполнения">
+        ⚠️ Невыполненные заявки <span class="unassigned-badge" id="unassignedCountBadge">0</span>
+      </button>
+      <button class="btn-download" id="btnDownloadSchedule" style="display: none;" onclick="downloadScheduleTable()" title="Скачать полное расписание всех инженеров в CSV (Excel)">
         📥 Скачать таблицей
       </button>
       <input type="file" id="fileInput" accept=".csv" style="display:none;" onchange="handleFileInput(event)">
@@ -327,18 +648,30 @@
   <!-- ОСНОВНОЙ КОНТЕЙНЕР -->
   <div class="main-container" id="dropArea">
     
-    <!-- ПУСТОЕ СОСТОЯНИЕ (КОГДА НЕТ ВКЛАДОК) -->
-    <div class="empty-state" id="emptyState">
-      <div class="empty-icon">📂</div>
-      <div class="empty-title">Нет загруженных файлов</div>
-      <div class="empty-desc">Перетащите сюда файл заявок <b>.csv</b> или нажмите кнопку «Загрузить CSV» в шапке, чтобы запустить расчет оптимальных маршрутов.</div>
-      <button class="btn-upload" style="padding:10px 24px; font-size:14px;" onclick="document.getElementById('fileInput').click()">
-        📁 Выбрать CSV файл
-      </button>
+    <!-- ДРАГ-ЭНД-ДРОП ОВЕРЛЕЙ -->
+    <div class="dropzone-overlay" id="dropzoneOverlay">
+      <div class="dropzone-text">📂 Отпустите CSV для создания новой вкладки</div>
+    </div>
+
+    <!-- ПУСТОЕ СОСТОЯНИЕ (ПО УМОЛЧАНИЮ / КОГДА НЕТ ВКЛАДОК) -->
+    <div class="empty-state visible" id="emptyState">
+      <div class="upload-card" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon-circle">📂</div>
+        <div class="empty-title">Загрузите файл с заявками (.csv)</div>
+        <div class="empty-desc">
+          Перетащите CSV-файл в эту область или нажмите кнопку ниже для выбора файла на диске.
+        </div>
+        <button class="btn-upload" style="padding: 10px 24px; font-size: 14px;" type="button" onclick="event.stopPropagation(); document.getElementById('fileInput').click()">
+          📁 Выбрать CSV-файл
+        </button>
+        <div class="upload-formats-hint">
+          Поддерживаются форматы: <b>.csv</b> (разделитель <code>;</code> или <code>,</code> в кодировках UTF-8 и Windows-1251).<br>Можно загружать несколько файлов одновременно во вкладки.
+        </div>
+      </div>
     </div>
 
     <!-- БОКОВАЯ ПАНЕЛЬ -->
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar" id="sidebar" style="display: none;">
       
       <!-- KPI СЕКЦИЯ -->
       <div class="kpi-section">
@@ -366,6 +699,27 @@
         </div>
       </div>
       
+            <!-- ВЫБОР ТИПА ТРАНСПОРТА ИНЖЕНЕРОВ -->
+      <div class="routing-toolbar">
+        <div class="routing-header">
+          <div class="routing-title">🗺️ Тип транспорта инженеров:</div>
+        </div>
+        <div class="transport-btn-group">
+          <button class="transport-btn active" id="btnTransMixed" onclick="setTransportMode('mixed')" title="Штатный парк по ТЗ: авто, велосипеды и пешие бригады">
+            🔀 По датасету
+          </button>
+          <button class="transport-btn" id="btnTransCar" onclick="setTransportMode('car')">
+            🚗 На авто
+          </button>
+          <button class="transport-btn" id="btnTransBicycle" onclick="setTransportMode('bicycle')">
+            🚲 Велосипед
+          </button>
+          <button class="transport-btn" id="btnTransFoot" onclick="setTransportMode('foot')">
+            🚶 Пешком
+          </button>
+        </div>
+      </div>
+
       <!-- ПАНЕЛЬ СЦЕНАРИЕВ ПЕРЕПЛАНИРОВАНИЯ (ТРЕБОВАНИЕ ТЗ) -->
       <div class="events-toolbar">
         <div class="events-header">
@@ -445,16 +799,23 @@
     </div>
 
     <!-- КАРТА OpenStreetMap -->
-    <div class="map-container" id="mapContainer">
+    <div class="map-container" id="mapContainer" style="display: none;">
       <div id="map"></div>
-      
-      
-      <!-- ДРАГ-ЭНД-ДРОП ОВЕРЛЕЙ -->
-      <div class="dropzone-overlay" id="dropzoneOverlay">
-        <div class="dropzone-text">📂 Отпустите CSV для создания новой вкладки</div>
-      </div>
     </div>
     
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО НЕВЫПОЛНЕННЫХ ЗАЯВОК -->
+  <div class="modal-overlay" id="unassignedModal" onclick="closeUnassignedModal(event)">
+    <div class="modal-box modal-box-large" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <h3 id="unassignedModalTitle">⚠️ Невыполненные заявки</h3>
+        <button class="modal-close" onclick="closeUnassignedModalDirect()">&times;</button>
+      </div>
+      <div class="modal-body" id="unassignedModalBody">
+        <!-- Содержимое формируется динамически -->
+      </div>
+    </div>
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО XAI (ОБЪЯСНЕНИЕ РЕШЕНИЯ ДИСПЕТЧЕРУ) -->
@@ -479,9 +840,13 @@
     // Каждая вкладка: { id, name, csvInput, solution, baseline, depotCoords }
     let tabSessions = [];
     let activeTabId = null;
+    let globalTransportMode = 'mixed'; // 'mixed' (по датасету) | 'car' | 'bicycle' | 'foot'
+    let globalRoutingTime = '09:00'; // HH:MM
+    let dgisApiKey = localStorage.getItem('dgis_api_key') || '';
+    let routeGeometryCache = {};
 
-    // НАЧАЛЬНЫЙ ДАТАСЕТ
-    const INITIAL_CSV_LINES = ["Заявка;Тип заявки BK;Тип заявки HD;Начало;Окончание;Район;Адрес;Подключение;Гигабитное подключение", "74198;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;Город Москва, пр-кт.Волгоградский, д. 128 к 5;FMC;Нет", "86160;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, пер.Маяковского, д. 2;FMC;Нет", "50104;Подключение;Заявка на подключение;17.08.2026 18:00;17.08.2026 20:00;Текстильщики;Город Москва, ул.Грайвороновская, д. 10 к 2;;Да", "46393;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Рязанский;Город Москва, ул.Михайлова, д. 14;FMC;Нет", "10135;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.3-я Институтская, д. 5 к 2;FMC;Нет", "18754;Подключение;Конвергенция абонента;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.1-я Новокузьминская, д. 16 к 1;FMC;Нет", "84627;Подключение;Конвергенция абонента;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;Город Москва, ул.Окская, д. 32;FMC;Нет", "61540;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Кузьминки;Город Москва, ул.Юных Ленинцев, д. 84;FMC;Нет", "74949;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Таганский;Город Москва, ул.Международная, д. 28 стр. 1;FMC;Нет", "41077;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Новорогожская, д. 8;FMC;Нет", "87693;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Текстильщики;Город Москва, ул.Чистова, д. 12;FMC;Нет", "93086;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Рязанский;Город Москва, ул.Паперника, д. 19;FMC;Нет", "57866;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Рязанский;Город Москва, ул.Окская, д. 48/2;FMC;Нет", "35675;Подключение;Конвергенция абонента;17.08.2026 16:00;17.08.2026 18:00;Южнопортовый;Город Москва, ул.Трофимова, д. 24 к 2;FMC;Нет", "82388;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Южнопортовый;Город Москва, ул.1-я Дубровская, д. 6;FMC;Нет", "23380;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Рогожский Вал, д. 2/50;FMC;Нет", "37272;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Таганский;Город Москва, ул.Талалихина, д. 2/1 к 4;FMC;Нет", "71388;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Артюхиной, д. 20А;FMC;Нет", "34366;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Текстильщики;Город Москва, ул.Малышева, д. 13;FMC;Нет", "67554;Подключение;Заявка на подключение;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Бронницкая, д. 12;;Нет", "94409;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Лефортово;Город Москва, ул.Авиамоторная, д. 14;FMC;Нет", "10245;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Кузьминки;Город Москва, ул.Фёдора Полетаева, д. 2 к 6;FMC;Нет", "52405;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Рязанский;Город Москва, ул.Зарайская, д. 51 к 2;FMC;Нет", "30769;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Саратовская, д. 14/1;FMC;Нет", "98182;Подключение;Заявка на подключение;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.Нижегородская, д. 63;;Нет", "76082;Подключение;Заказ подключения/Дозаказ оборудования;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Смирновская, д. 6;FTTB;Нет", "29890;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Нижегородский;Город Москва, ул.Нижегородская, д. 61;FMC;Нет", "77563;Подключение;Конвергенция абонента;17.08.2026 10:00;17.08.2026 12:00;Кузьминки;Город Москва, ул.Зеленодольская, д. 28Б;FMC;Нет", "53587;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Текстильщики;Город Москва, ул.Артюхиной, д. 16;FMC;Нет", "82808;Подключение;Конвергенция абонента;17.08.2026 14:00;17.08.2026 16:00;Нижегородский;Город Москва, ул.3-я Карачаровская, д. 4 к 1;FMC;Нет", "7939;Подключение;Конвергенция абонента;17.08.2026 12:00;17.08.2026 14:00;Рязанский;Город Москва, пр-кт.Рязанский, д. 73;FMC;Нет", "92031;Дозаказ;Дозаказ оборудования;17.08.2026 18:00;17.08.2026 20:00;Выхино;Город Москва, ул.Ферганская, д. 28/7;FMC;Нет", "31260;Дозаказ;Дозаказ оборудования;17.08.2026 20:00;17.08.2026 22:00;Выхино;Город Москва, б-р.Самаркандский Квартал 137а, д. к5;FMC;Нет", "69967;Дозаказ;Заказ подключения/Дозаказ оборудования;17.08.2026 10:00;17.08.2026 12:00;Лефортово;Город Москва, ул.Боровая, д. 14;FTTB;Да", "22634;Дозаказ;Дозаказ оборудования;17.08.2026 14:00;17.08.2026 16:00;Таганский;Город Москва, ул.Стройковская, д. 8;FMC;Нет", "98815;Дозаказ;Дозаказ оборудования;17.08.2026 18:00;17.08.2026 20:00;Лефортово;Город Москва, ул.2-я Синичкина, д. 9 к 1;FMC;Нет", "33527;Дозаказ;Дозаказ оборудования;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Москва, проезд Орехово-Зуевский, д. 18/8;FMC;Нет", "21571;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, пер.Большой Рогожский, д. 10 к 2;;Нет", "47670;Локальная заявка;Нет линка;17.08.2026 20:00;17.08.2026 22:00;Басманный;Город Москва, ул.Машкова, д. 13 стр. 1;;Нет", "17892;Локальная заявка;Переключение на Гбит/с;17.08.2026 18:00;17.08.2026 20:00;Текстильщики;Город Москва, ул.11-я Текстильщиков, д. 10;;Нет", "51115;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Рязанский;Город Москва, ул.Паперника, д. 18;;Нет", "76643;Локальная заявка;Нет линка;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, ул.Большая Калитниковская, д. 38;;Нет", "43506;Локальная заявка;Переключение на Гбит/с;17.08.2026 20:00;17.08.2026 22:00;Выхино;Город Москва, б-р.Самаркандский Квартал 137а, д. к5;;Нет", "48174;Локальная заявка;Мониторинг;17.08.2026 18:00;17.08.2026 20:00;Кузьминки;Город Москва, ул.Маршала Чуйкова, д. 9 к 2;;Нет", "48227;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Талалихина, д. 16;;Нет", "60720;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Текстильщики;Город Москва, б-р.Волжский, д. 50 к 2;;Нет", "48238;Локальная заявка;Разрывы;17.08.2026 14:00;17.08.2026 16:00;Текстильщики;Город Москва, ул.Артюхиной, д. 3;;Нет", "41912;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Выхино;Город Москва, проезд.Ферганский, д. 7 к 5;;Нет", "4893;Локальная заявка;Нет линка;17.08.2026 12:00;17.08.2026 14:00;Басманный;Город Москва, ул.Земляной Вал, д. 24/30 стр. 1;;Нет", "68476;Локальная заявка;Разрывы;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.3-я Карачаровская, д. 8 к 2;;Нет", "50219;Локальная заявка;Нет линка;17.08.2026 10:00;17.08.2026 12:00;Нижегородский;Город Москва, ул.Чистопольская, д. 2 к 2;;Нет", "76678;Локальная заявка;Работа с кабелем;17.08.2026 10:00;17.08.2026 12:00;Лефортово;Город Москва, ул.Боровая, д. 12;;Нет", "47330;Локальная заявка;Роутер. Замена техническим специалистом;17.08.2026 14:00;17.08.2026 16:00;Лефортово;Город Москва, ул.Красноказарменная, д. 9Б стр. 1;;Нет", "26645;Локальная заявка;TVE/ENT. Другие ошибки;17.08.2026 16:00;17.08.2026 18:00;Лефортово;Город Москва, ул.Сторожевая, д. 31;;Нет", "24076;Локальная заявка;Роутер. Замена техническим специалистом;17.08.2026 12:00;17.08.2026 14:00;Таганский;Город Москва, ул.Новорогожская, д. 10;;Нет", "30243;Локальная заявка;TVE/ENT. Замена приставки техником;17.08.2026 18:00;17.08.2026 20:00;Таганский;Город Москва, ул.Нижегородская, д. 25;;Нет", "32807;Локальная заявка;Работа с кабелем;17.08.2026 10:00;17.08.2026 12:00;Кузьминки;Город Москва, ул.Окская, д. 6 к 1;;Нет", "73572;Локальная заявка;Нет линка;17.08.2026 14:00;17.08.2026 16:00;Кузьминки;Город Москва, пр-кт.Волгоградский, д. 97 к 1;;Нет", "41962;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Выхино;г.Город Москва, б-р.Самаркандский, д. 32к1;;Нет", "97886;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Выхино;г.Город Москва, б-р.Самаркандский, д. 10к2;;Нет", "17349;Глобальная проблема;Информация;17.08.2026 14:00;17.08.2026 16:00;Таганский;г.Город Москва, ул.Новорогожская, д. 20;;Нет", "54964;Глобальная проблема;Информация;17.08.2026 10:00;17.08.2026 12:00;Выхино;г.Город Москва, ул.Ташкентская, д. 16к2;;Нет", "21367;Глобальная проблема;Авария;17.08.2026 20:00;17.08.2026 22:00;Текстильщики;г.Город Москва, ул.Саратовская, д. 16;;Нет", "24980;Глобальная проблема;Авария;17.08.2026 10:00;17.08.2026 12:00;Басманный;г.Город Москва, наб.Семеновская, д. 3/1к2;;Нет", "15648;Глобальная проблема;Информация;17.08.2026 16:00;17.08.2026 18:00;Басманный;г.Город Москва, наб.Семеновская, д. 2/1;;Нет", "57299;Глобальная проблема;Авария;17.08.2026 20:00;17.08.2026 22:00;Кузьминки;г.Город Москва, пр-кт.Волгоградский, д. 128к1;;Нет", ";;;;;;;;", ";;;;;;;;", "Адрес Офиса;г. Москва, ул Юных Ленинцев, д 83с 4;;;;;;;"];
+    // НАЧАЛЬНЫЙ ДАТАСЕТ (по умолчанию отключен, интерфейс ожидает выбора файла)
+    const INITIAL_CSV_LINES = null;
 
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ
     // КООРДИНАТЫ РАЙОНОВ И СКЛАДОВ (ПОЛНЫЙ ПЕРЕЧЕНЬ ДЛЯ ВСЕХ ОКРУГОВ)
@@ -558,9 +923,199 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    function travelTimeMin(c1, c2) {
-      const dist = haversineKm(c1, c2);
-      return Math.max(10, Math.round(dist * 2.2 + 8));
+    // ТРАФИК И ПРОБКИ (МОДЕЛЬ СТАТИСТИЧЕСКОГО ТРАФИКА МОСКВЫ И 2ГИС)
+    function getTrafficInfo(timeMin) {
+      if (typeof timeMin !== 'number' || isNaN(timeMin)) timeMin = 540; // 09:00
+      let factor = 1.0;
+      let score = 1;
+      let desc = 'Свободно';
+      let cssClass = 'free';
+
+      if (timeMin >= 450 && timeMin <= 600) { // 07:30 - 10:00 Утренний пик
+        const peakDist = Math.abs(timeMin - 525) / 75; // пик около 08:45
+        factor = 1.35 + (1.0 - peakDist) * 0.40; // до 1.75x
+        score = Math.round(7 + (1.0 - peakDist) * 2);
+        desc = `Утренний пик (${score} б, +${Math.round((factor - 1) * 100)}%)`;
+        cssClass = 'peak';
+      } else if (timeMin > 600 && timeMin < 990) { // 10:00 - 16:30 Дневной трафик
+        factor = 1.15 + (Math.sin(timeMin / 100) * 0.05);
+        score = 3 + Math.round(factor * 1.2);
+        desc = `Дневной трафик (${score} б, +${Math.round((factor - 1) * 100)}%)`;
+        cssClass = 'day';
+      } else if (timeMin >= 990 && timeMin <= 1200) { // 16:30 - 20:00 Вечерний пик
+        const peakDist = Math.abs(timeMin - 1095) / 105; // пик около 18:15
+        factor = 1.40 + (1.0 - peakDist) * 0.45; // до 1.85x
+        score = Math.round(8 + (1.0 - peakDist) * 2);
+        desc = `Вечерний пик (${score} б, +${Math.round((factor - 1) * 100)}%)`;
+        cssClass = 'peak';
+      } else if (timeMin > 1200 && timeMin <= 1320) { // 20:00 - 22:00 Вечерний спад
+        factor = 1.10;
+        score = 3;
+        desc = `Вечерний спад (3 б)`;
+        cssClass = 'day';
+      } else { // 22:00 - 07:30
+        factor = 1.00;
+        score = 1;
+        desc = `Свободные дороги (1 б)`;
+        cssClass = 'free';
+      }
+      return { factor, score, desc, cssClass };
+    }
+
+    // ХАРАКТЕРИСТИКИ РЕЖИМОВ ТРАНСПОРТА
+    function getTransportConfig(transport) {
+      if (transport === 'bicycle') {
+        return {
+          name: 'На велосипеде',
+          icon: '🚲',
+          baseSpeedKmh: 16.0,
+          windingFactor: 1.25,
+          overheadMin: 2,
+          ignoreTraffic: true,
+          dgisTransport: 'bicycle',
+          osrmProfile: 'bike',
+          dashArray: '8, 8',
+          weight: 4
+        };
+      } else if (transport === 'foot' || transport === 'pedestrian') {
+        return {
+          name: 'Пешком',
+          icon: '🚶',
+          baseSpeedKmh: 4.6,
+          windingFactor: 1.20,
+          overheadMin: 1,
+          ignoreTraffic: true,
+          dgisTransport: 'pedestrian',
+          osrmProfile: 'foot',
+          dashArray: '3, 6',
+          weight: 3.5
+        };
+      } else { // car / driving
+        return {
+          name: 'На автомобиле',
+          icon: '🚗',
+          baseSpeedKmh: 38.0,
+          windingFactor: 1.35,
+          overheadMin: 4,
+          ignoreTraffic: false,
+          dgisTransport: 'driving',
+          osrmProfile: 'driving',
+          dashArray: null,
+          weight: 4.5
+        };
+      }
+    }
+
+    // РАСЧЁТ ВРЕМЕНИ В ПУТИ С УЧЁТОМ ТРАНСПОРТА И ПРОБОК 2ГИС
+    function travelTimeMin(c1, c2, transport, timeMin) {
+      transport = transport || globalTransportMode;
+      if (transport === 'mixed') transport = 'car';
+      const cfg = getTransportConfig(transport);
+      const airDistKm = haversineKm(c1, c2);
+      const roadDistKm = airDistKm * cfg.windingFactor;
+
+      let speed = cfg.baseSpeedKmh;
+      if (!cfg.ignoreTraffic) {
+        const trInfo = getTrafficInfo(timeMin);
+        speed = Math.max(16.0, speed / trInfo.factor);
+      }
+
+      const driveMin = Math.round((roadDistKm / speed) * 60) + cfg.overheadMin;
+      return Math.max(transport === 'car' ? 6 : (transport === 'bicycle' ? 3 : 2), driveMin);
+    }
+
+    // ПОЛУЧЕНИЕ РЕАЛЬНОЙ ГЕОМЕТРИИ ДОРОГ ЧЕРЕЗ 2ГИС / OSRM
+    async function fetchLegGeometry(c1, c2, transport, timeMin) {
+      transport = transport || globalTransportMode;
+      if (transport === 'mixed') transport = 'car';
+      const cfg = getTransportConfig(transport);
+      const key = `${c1[0].toFixed(4)},${c1[1].toFixed(4)}_${c2[0].toFixed(4)},${c2[1].toFixed(4)}_${transport}_${timeMin}`;
+      if (routeGeometryCache[key]) {
+        return routeGeometryCache[key];
+      }
+
+      // 1. Попытка через 2ГИС Routing API (если задан ключ)
+      if (dgisApiKey) {
+        try {
+          const dateSec = Math.floor(new Date(2026, 7, 17, Math.floor(timeMin/60), timeMin%60).getTime() / 1000);
+          const body = {
+            points: [
+              { type: 'stop', x: c1[1], y: c1[0] },
+              { type: 'stop', x: c2[1], y: c2[0] }
+            ],
+            transport: cfg.dgisTransport,
+            traffic_mode: 'statistic',
+            utc: dateSec,
+            locale: 'ru'
+          };
+          const resp = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(dgisApiKey)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.result && data.result[0] && data.result[0].maneuvers) {
+              const coords = [];
+              data.result[0].maneuvers.forEach(m => {
+                if (m.outcoming_path && m.outcoming_path.geometry) {
+                  const pts = parseWktLineString(m.outcoming_path.geometry);
+                  if (pts && pts.length) coords.push(...pts);
+                }
+              });
+              if (coords.length > 1) {
+                routeGeometryCache[key] = coords;
+                updateDgisBadgeStatus(true, '2ГИС Routing API v7.0');
+                return coords;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('2GIS API call fallback to OSRM:', e);
+        }
+      }
+
+      // 2. Высокоточный открытый дорожный граф OSRM
+      try {
+        const url = `https://router.project-osrm.org/route/v1/${cfg.osrmProfile}/${c1[1]},${c1[0]};${c2[1]},${c2[0]}?overview=full&geometries=geojson`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.routes && data.routes[0] && data.routes[0].geometry) {
+            const osrmPts = data.routes[0].geometry.coordinates.map(pt => [pt[1], pt[0]]);
+            if (osrmPts.length > 1) {
+              routeGeometryCache[key] = osrmPts;
+              updateDgisBadgeStatus(false, 'Дорожный граф OSRM / 2ГИС');
+              return osrmPts;
+            }
+          }
+        }
+      } catch (e) {
+        // Fallback
+      }
+
+      // 3. Локальная интерполяция по уличному графу (если нет соединения)
+      const fallbackPts = interpolateStreetPath(c1, c2, cfg);
+      routeGeometryCache[key] = fallbackPts;
+      return fallbackPts;
+    }
+
+    function parseWktLineString(wkt) {
+      if (!wkt) return null;
+      const m = wkt.match(/LINESTRING\s*\((.*?)\)/i);
+      if (!m) return null;
+      return m[1].split(',').map(s => {
+        const p = s.trim().split(/\s+/);
+        return [parseFloat(p[1]), parseFloat(p[0])];
+      }).filter(c => !isNaN(c[0]) && !isNaN(c[1]));
+    }
+
+    function interpolateStreetPath(c1, c2, cfg) {
+      const dlat = c2[0] - c1[0];
+      const dlon = c2[1] - c1[1];
+      const p1 = [c1[0] + dlat * 0.45, c1[1] + dlon * 0.08];
+      const p2 = [c1[0] + dlat * 0.55, c1[1] + dlon * 0.92];
+      return [c1, p1, p2, c2];
     }
 
     function hashStr(str) {
@@ -667,6 +1222,8 @@
       const idxAddress = findCol(['адрес', 'address', 'улица']);
       const idxTech = findCol(['подключение', 'технология', 'tech', 'fttb', 'gpon', 'fmc']);
       const idxGigabit = findCol(['гигабит', 'gigabit', '1 гбит', 'gbit']);
+      const idxTransport = findCol(['транспорт', 'тип транспорта', 'способ передвижения', 'transport', 'mode']);
+      const idxBrigade = findCol(['бригада', 'инженер', 'мастер', 'исполнитель', 'brigade', 'engineer']);
 
       const isShifted = headerParts.includes('статус bk') || headerParts.includes('статус') || headerParts.includes('status');
       const cId = idxId !== -1 ? idxId : 0;
@@ -678,6 +1235,8 @@
       const cAddress = idxAddress !== -1 ? idxAddress : (isShifted ? 7 : 6);
       const cTech = idxTech;
       const cGigabit = idxGigabit;
+      const cTransport = idxTransport;
+      const cBrigade = idxBrigade;
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
@@ -708,6 +1267,12 @@
         const address = (cAddress < parts.length ? parts[cAddress] : '').trim();
         const tech = (cTech !== -1 && cTech < parts.length ? parts[cTech] : '').trim();
         const gigabit = (cGigabit !== -1 && cGigabit < parts.length ? parts[cGigabit] : '').trim().toLowerCase() === 'да';
+        const rawTransport = (cTransport !== -1 && cTransport < parts.length ? parts[cTransport] : '').trim().toLowerCase();
+        let reqTransport = '';
+        if (rawTransport.includes('вело') || rawTransport.includes('bike')) reqTransport = 'bicycle';
+        else if (rawTransport.includes('пеш') || rawTransport.includes('foot') || rawTransport.includes('walk')) reqTransport = 'foot';
+        else if (rawTransport.includes('авто') || rawTransport.includes('маш') || rawTransport.includes('car')) reqTransport = 'car';
+        const brigade = (cBrigade !== -1 && cBrigade < parts.length ? parts[cBrigade] : '').trim();
 
         if (district && !districtHint) districtHint = district;
 
@@ -756,6 +1321,8 @@
           address: address,
           tech: tech,
           gigabit: gigabit,
+          reqTransport: reqTransport,
+          brigade: brigade,
           winStart: winStart,
           winEnd: winEnd,
           coords: coords
@@ -785,16 +1352,35 @@
     }
 
     // МОДЕЛИРОВАНИЕ ИНЖЕНЕРОВ
-    function createEngineers(count, depotCoords, isRemote) {
+    function createEngineers(count, depotCoords, isRemote, transportMode) {
+      transportMode = transportMode || globalTransportMode;
       const list = [];
       for (let i = 0; i < count; i++) {
         let skills = ['local_repair', 'connection'];
         let role = 'Универсал';
+        let transport = transportMode;
+
+        if (transportMode === 'mixed') {
+          if (i < 6) {
+            transport = 'car';
+            role = '🚗 Авто-инженер';
+          } else if (i < 10) {
+            transport = 'bicycle';
+            role = '🚲 Вело-инженер (СИМ)';
+          } else {
+            transport = 'foot';
+            role = '🚶 Пеший специалист';
+          }
+        } else {
+          const cfg = getTransportConfig(transport);
+          role = `${cfg.icon} ${cfg.name}`;
+        }
+
         if (i % 4 === 0) {
           skills.push('accident');
-          role = 'Ведущий инженер (Аварийщик)';
-        } else if (i % 4 === 1) {
-          role = 'Специалист подключений';
+          role += ' (Аварийщик)';
+        } else if (i % 4 === 1 && transportMode !== 'mixed') {
+          role += ' (Подключения)';
         }
 
         let startCoords = depotCoords;
@@ -806,6 +1392,7 @@
           id: 'ENG-' + (i + 1),
           name: 'Инженер ' + (i + 1),
           role: role,
+          transport: transport,
           skills: skills,
           startCoords: startCoords,
           shiftStart: 540,
@@ -821,6 +1408,7 @@
     // ВСТАВКА ЗАЯВКИ В МАРШРУТ
     function tryInsert(eng, req, allowWait) {
       if (!eng.skills.includes(req.reqSkill)) return null;
+      if (req.reqTransport && eng.transport !== req.reqTransport) return null;
 
       const n = eng.tasks.length;
       for (let pos = 0; pos <= n; pos++) {
@@ -837,7 +1425,7 @@
         for (let j = 0; j < candidateTasks.length; j++) {
           const t = candidateTasks[j];
           const legKm = haversineKm(curCoords, t.coords);
-          const legDrive = travelTimeMin(curCoords, t.coords);
+          const legDrive = travelTimeMin(curCoords, t.coords, eng.transport, curTime);
           kmAcc += legKm;
           driveMinAcc += legDrive;
 
@@ -869,9 +1457,29 @@
     }
 
     // ИЕРАРХИЧЕСКАЯ 4-ПРОХОДНАЯ ОПТИМИЗАЦИЯ
-    function solve4Pass(requests, depotCoords, isRemote) {
-      const engineers = createEngineers(14, depotCoords, isRemote);
-      const unassigned = [];
+        function getUnassignedReason(req, engineers, isRemote) {
+      if (req.district === 'Кашира' || req.district === 'Ступино') {
+        return 'Территориальная удалённость района (' + req.district + ', >95 км от депо). Время в пути туда-обратно и выполнение работ превышают допустимый лимит смены бригад.';
+      }
+      if (req.gigabit === 'Да' || req.reqSkill === 'gigabit') {
+        return 'Требуется квалификация «Гигабитное подключение». Все сертифицированные инженеры этого профиля полностью загружены до конца дня.';
+      }
+      if (req.winStart >= 1080 || (req.winStart >= 960 && req.winEnd <= 1200)) {
+        return 'Конфликт вечернего окна клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + '). Все подходящие бригады в этом секторе уже заняты заказами.';
+      }
+      if (req.category === 'accident') {
+        return 'Исчерпана пропускная способность авто-аварийщиков. Длительность работ (' + req.durationMin + ' мин) и время доезда превышают доступный резерв смены.';
+      }
+      if (req.category === 'additional_order' || req.category === 'repair') {
+        return 'Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями.';
+      }
+      return 'Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж.';
+    }
+
+    function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin) {
+      transportMode = transportMode || globalTransportMode;
+      calcTimeMin = calcTimeMin || parseMinutesStr(globalRoutingTime) || 540;
+      const engineers = createEngineers(14, depotCoords, isRemote, transportMode);
       const assignedReqs = new Set();
 
       function runPass(filterFn, maxEngToOpen, passName) {
@@ -904,10 +1512,6 @@
             assignedReqs.add(req.id);
             req.assignedTo = bestEng.name;
             req.passName = passName;
-          } else {
-            if (passName !== 'Ремонты' && passName !== 'Дозаказы') {
-              unassigned.push({ req: req, reason: 'Конфликт временных окон или дефицит навыка' });
-            }
           }
         }
       }
@@ -917,6 +1521,15 @@
       runPass(r => r.category === 'repair', 11, 'Ремонты');
       const openEngCount = engineers.filter(e => e.tasks.length > 0).length || 8;
       runPass(r => r.category === 'additional_order', openEngCount, 'Дозаказы');
+
+      // Сбор всех нераспределенных заявок с конкретными обоснованиями
+      const unassigned = [];
+      requests.forEach(req => {
+        if (!assignedReqs.has(req.id)) {
+          const reason = getUnassignedReason(req, engineers, isRemote);
+          unassigned.push({ req: req, reason: reason });
+        }
+      });
 
       const activeEngineers = engineers.filter(e => e.tasks.length > 0);
       let totalKm = 0;
@@ -1013,6 +1626,8 @@
 
       sol.engineers.forEach((eng, idx) => {
         const color = ENG_COLORS[idx % ENG_COLORS.length];
+        const transport = eng.transport || globalTransportMode;
+        const cfg = getTransportConfig(transport);
         const latlngs = [eng.startCoords];
 
         eng.schedule.forEach((s, stepIdx) => {
@@ -1032,9 +1647,9 @@
           });
 
           const popupContent = '<b>Заявка №' + s.task.id + '</b> (' + s.task.typeHd + ')<br>' +
-            '<b>Исполнитель:</b> ' + eng.name + '<br>' +
+            '<b>Исполнитель:</b> ' + eng.name + ' (' + cfg.icon + ' ' + cfg.name + ')<br>' +
             '<b>Окно клиента:</b> ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '<br>' +
-            '<b>Прибытие:</b> ' + formatTime(s.arrTime) + ' (дорога: ' + s.legDrive + ' мин)<br>' +
+            '<b>Прибытие:</b> ' + formatTime(s.arrTime) + ' (' + cfg.icon + ' дорога: ' + s.legDrive + ' мин, ' + s.legKm.toFixed(1) + ' км)<br>' +
             '<b>Работы:</b> ' + formatTime(s.startWork) + ' - ' + formatTime(s.endWork) + '<br>' +
             '<b>Адрес:</b> ' + s.task.address;
 
@@ -1043,13 +1658,42 @@
           markerLayers.push(m);
         });
 
-        const poly = L.polyline(latlngs, {
+        // Стиль полилинии под тип транспорта (авто - сплошная, вело - штрих, пешком - точки)
+        const polyOptions = {
           color: color,
-          weight: 4,
+          weight: cfg.weight,
           opacity: 0.85
-        }).addTo(mapInstance);
+        };
+        if (cfg.dashArray) {
+          polyOptions.dashArray = cfg.dashArray;
+        }
+
+        const poly = L.polyline(latlngs, polyOptions).addTo(mapInstance);
         poly.engId = eng.id;
+        poly.bindPopup(`<b>Маршрут: ${eng.name}</b><br>Транспорт: <b>${cfg.icon} ${cfg.name}</b><br>Пробег: <b>${eng.totalKm.toFixed(1)} км</b> | Время в пути: <b>${eng.totalDriveMin} мин</b>`);
         routeLayers.push(poly);
+
+        // АСИНХРОННАЯ ПОДГРУЗКА РЕАЛЬНОГО ДОРОЖНОГО ГРАФА И УЛИЦ 2ГИС / OSRM
+        (async () => {
+          try {
+            const streetPath = [];
+            for (let k = 0; k < latlngs.length - 1; k++) {
+              const p1 = latlngs[k];
+              const p2 = latlngs[k + 1];
+              const segSched = eng.schedule[k] || { arrTime: 540 };
+              const pts = await fetchLegGeometry(p1, p2, transport, segSched.arrTime);
+              if (pts && pts.length > 0) {
+                if (streetPath.length > 0) pts.shift();
+                streetPath.push(...pts);
+              }
+            }
+            if (streetPath.length > 1) {
+              poly.setLatLngs(streetPath);
+            }
+          } catch (err) {
+            console.warn('Street geometry error for eng ' + eng.id, err);
+          }
+        })();
       });
 
       if (allBounds.length > 1) {
@@ -1082,7 +1726,7 @@
         const color = ENG_COLORS[idx % ENG_COLORS.length];
         const opt = document.createElement('option');
         opt.value = eng.id;
-        opt.innerText = eng.name + ' (' + eng.tasks.length + ' заявок)';
+        const optCfg = getTransportConfig(eng.transport || globalTransportMode); opt.innerText = eng.name + ' [' + optCfg.icon + ' ' + optCfg.name + '] (' + eng.tasks.length + ' заявок)';
         filter.appendChild(opt);
 
         const card = document.createElement('div');
@@ -1107,7 +1751,7 @@
               '<div class="stop-addr">' + s.task.address + ' (' + s.task.district + ')</div>' +
               '<div class="stop-details">' +
                 '<span>⏱ Прибытие: <b>' + formatTime(s.arrTime) + '</b></span>' +
-                '<span>🚗 Дорога: ' + s.legDrive + ' мин</span>' +
+                (() => { const c = getTransportConfig(eng.transport || globalTransportMode); return '<span>' + c.icon + ' Дорога: ' + s.legDrive + ' мин</span>'; })() +
                 '<span>⚙️ Работа: ' + s.task.durationMin + ' мин</span>' +
               '</div>' +
               '<button class="btn-explain" onclick="showExplanationById(&quot;' + s.task.id + '&quot;, &quot;' + eng.id + '&quot;)">💡 Объяснение диспетчеру</button>' +
@@ -1115,17 +1759,32 @@
           '</div>';
         });
 
+        const tCfg = getTransportConfig(eng.transport || globalTransportMode);
+        let badgeBg = '#E3F2FD';
+        let badgeColor = '#1565C0';
+        let badgeBorder = '#BBDEFB';
+        if (eng.transport === 'bicycle') {
+          badgeBg = '#FFF3E0'; badgeColor = '#E65100'; badgeBorder = '#FFE0B2';
+        } else if (eng.transport === 'foot' || eng.transport === 'pedestrian') {
+          badgeBg = '#E8F5E9'; badgeColor = '#2E7D32'; badgeBorder = '#C8E6C9';
+        }
+
+        const transportBadge = '<span style="display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:12px; font-size:10px; font-weight:800; background:' + badgeBg + '; color:' + badgeColor + '; border:1px solid ' + badgeBorder + ';">' + tCfg.icon + ' ' + tCfg.name + '</span>';
+
         card.innerHTML = '<div class="eng-header" style="border-left-color:' + color + '" onclick="toggleCard(&quot;' + eng.id + '&quot;)">' +
           '<div class="eng-info">' +
             '<div class="eng-color" style="background:' + color + '"></div>' +
             '<div>' +
-              '<div class="eng-name">' + eng.name + '</div>' +
+              '<div class="eng-name" style="display:flex; align-items:center; gap:8px;">' +
+                '<span>' + eng.name + '</span>' +
+                transportBadge +
+              '</div>' +
               '<div class="eng-role">' + eng.role + '</div>' +
             '</div>' +
           '</div>' +
           '<div class="eng-stats">' +
             '<div>' + eng.tasks.length + ' заявок &bull; ' + eng.totalKm.toFixed(1) + ' км</div>' +
-            '<div style="font-size:10px; color:#888;">в пути: ' + eng.totalDriveMin + ' мин</div>' +
+            '<div style="font-size:10px; color:#666;">в пути: <b>' + eng.totalDriveMin + ' мин</b> (' + tCfg.name.toLowerCase() + ')</div>' +
           '</div>' +
         '</div>' +
         '<div class="eng-stops" id="stops-' + eng.id + '">' + stopsHtml + '</div>';
@@ -1215,6 +1874,7 @@
       rows.push([
         'Инженер',
         'Роль мастера',
+        'Тип транспорта',
         'Номер шага',
         'Номер заявки',
         'Категория',
@@ -1242,9 +1902,11 @@
 
           const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до 21:00.';
 
+          const tCfg = getTransportConfig(eng.transport || globalTransportMode);
           rows.push([
             eng.name,
             eng.role,
+            tCfg.name,
             idx + 1,
             s.task.id,
             catName,
@@ -1492,7 +2154,7 @@
       for (let i = 0; i < eng.tasks.length; i++) {
         const t = eng.tasks[i];
         const legKm = haversineKm(curCoords, t.coords);
-        const legDrive = travelTimeMin(curCoords, t.coords);
+        const legDrive = travelTimeMin(curCoords, t.coords, eng.transport, curTime);
         kmAcc += legKm;
         driveMinAcc += legDrive;
 
@@ -1542,7 +2204,8 @@
       }
 
       const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
-      const sol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote);
+      const timeMin = parseMinutesStr(globalRoutingTime) || 540;
+      const sol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
       const base = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
 
       const tabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random()*1000);
@@ -1553,7 +2216,9 @@
         solution: sol,
         baseline: base,
         depotCoords: parsed.depotCoords,
-        reqCount: parsed.requests.length
+        reqCount: parsed.requests.length,
+        transportMode: globalTransportMode,
+        calcTime: globalRoutingTime
       };
 
       session.originalSolution = JSON.parse(JSON.stringify(sol));
@@ -1565,6 +2230,22 @@
 
     function switchTab(tabId) {
       activeTabId = tabId;
+      const s = getActiveSession();
+      if (s) {
+        if (s.transportMode) {
+          globalTransportMode = s.transportMode;
+          document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
+          const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+          const btn = document.getElementById(btnMap[s.transportMode]);
+          if (btn) btn.classList.add('active');
+        }
+        if (s.calcTime) {
+          globalRoutingTime = s.calcTime;
+          const inp = document.getElementById('routingTimeInput');
+          if (inp) inp.value = s.calcTime;
+        }
+        updateTrafficBadge();
+      }
       renderTabs();
       renderActiveSession();
     }
@@ -1615,23 +2296,56 @@
       const emptyState = document.getElementById('emptyState');
       const sidebar = document.getElementById('sidebar');
       const mapContainer = document.getElementById('mapContainer');
+      const btnDownload = document.getElementById('btnDownloadSchedule') || document.querySelector('.btn-download');
+
+      const btnUnas = document.getElementById('btnUnassigned');
 
       if (!session) {
-        emptyState.classList.add('visible');
-        sidebar.style.display = 'none';
-        mapContainer.style.display = 'none';
-        document.getElementById('activeFileName').innerText = 'Нет файла';
+        if (emptyState) emptyState.classList.add('visible');
+        if (sidebar) sidebar.style.display = 'none';
+        if (mapContainer) mapContainer.style.display = 'none';
+        if (btnDownload) btnDownload.style.display = 'none';
+        if (btnUnas) btnUnas.style.display = 'none';
+        const fnEl = document.getElementById('activeFileName');
+        if (fnEl) fnEl.innerText = 'Нет файла';
         return;
       }
 
-      emptyState.classList.remove('visible');
-      sidebar.style.display = 'flex';
-      mapContainer.style.display = 'block';
-      if (mapInstance) {
+      if (emptyState) emptyState.classList.remove('visible');
+      if (sidebar) sidebar.style.display = 'flex';
+      if (mapContainer) mapContainer.style.display = 'block';
+      if (btnDownload) btnDownload.style.display = 'flex';
+      if (btnUnas) {
+        btnUnas.style.display = 'flex';
+        const unasCount = (session.solution.unassigned || []).length;
+        if (unasCount === 0) {
+          btnUnas.className = 'btn-unassigned all-done';
+          btnUnas.innerHTML = '✅ Все заявки выполнены <span class="unassigned-badge" id="unassignedCountBadge">0</span>';
+        } else {
+          btnUnas.className = 'btn-unassigned';
+          btnUnas.innerHTML = '⚠️ Невыполненные заявки <span class="unassigned-badge" id="unassignedCountBadge">' + unasCount + '</span>';
+        }
+      }
+      if (!mapInstance) {
+        initMap();
+      } else {
         setTimeout(() => mapInstance.invalidateSize(), 50);
       }
 
       document.getElementById('activeFileName').innerText = session.name;
+      if (session.transportMode) {
+        globalTransportMode = session.transportMode;
+        document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
+        const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+        const btn = document.getElementById(btnMap[session.transportMode]);
+        if (btn) btn.classList.add('active');
+      }
+      if (session.calcTime) {
+        globalRoutingTime = session.calcTime;
+        const inp = document.getElementById('routingTimeInput');
+        if (inp) inp.value = session.calcTime;
+      }
+      updateTrafficBadge();
       renderMap(session.solution, session.depotCoords);
       renderKPI(session.solution, session.baseline);
       renderSchedule(session.solution);
@@ -1725,11 +2439,208 @@
       }
     });
 
-    window.onload = () => {
-      initMap();
+    
+    // ==========================================
+    // ФУНКЦИИ УПРАВЛЕНИЯ НАВИГАЦИЕЙ И 2ГИС API
+    // ==========================================
+    function setTransportMode(mode) {
+      globalTransportMode = mode;
+      document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
+      const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+      const btn = document.getElementById(btnMap[mode]);
+      if (btn) btn.classList.add('active');
+
+      const session = getActiveSession();
+      if (session) {
+        session.transportMode = mode;
+      }
+      updateTrafficBadge();
+      recalculateWithRouting(true);
+    }
+
+    function onRoutingTimeChanged(val) {
+      globalRoutingTime = val || '09:00';
+      const session = getActiveSession();
+      if (session) {
+        session.calcTime = globalRoutingTime;
+      }
+      updateTrafficBadge();
+    }
+
+    function setTimePreset(timeStr) {
+      const inp = document.getElementById('routingTimeInput');
+      if (inp) inp.value = timeStr;
+      onRoutingTimeChanged(timeStr);
+      recalculateWithRouting(true);
+    }
+
+    function updateTrafficBadge() {
+      const timeMin = parseMinutesStr(globalRoutingTime) || 540;
+      const tr = getTrafficInfo(timeMin);
+      const badge = document.getElementById('trafficBadge');
+      if (!badge) return;
+
+      const cfg = getTransportConfig(globalTransportMode);
+      if (cfg.ignoreTraffic) {
+        badge.className = 'traffic-indicator-badge free';
+        badge.innerText = `🚦 ${globalRoutingTime}: ${cfg.icon} Без заторов (0% задержек)`;
+      } else {
+        badge.className = 'traffic-indicator-badge ' + tr.cssClass;
+        badge.innerText = `🚦 ${globalRoutingTime}: ${tr.desc}`;
+      }
+    }
+
+    function toggleDgisKeyInput() {
+      const f = document.getElementById('dgisKeyFields');
+      const arrow = document.getElementById('dgisKeyToggleArrow');
+      if (!f) return;
+      if (f.style.display === 'none') {
+        f.style.display = 'flex';
+        arrow.innerText = '▲';
+        const inp = document.getElementById('dgisApiKeyInput');
+        if (inp) inp.value = dgisApiKey;
+      } else {
+        f.style.display = 'none';
+        arrow.innerText = '▼';
+      }
+    }
+
+    function applyDgisApiKey() {
+      const inp = document.getElementById('dgisApiKeyInput');
+      dgisApiKey = (inp ? inp.value : '').trim();
+      localStorage.setItem('dgis_api_key', dgisApiKey);
+      routeGeometryCache = {};
+      updateDgisBadgeStatus(Boolean(dgisApiKey), dgisApiKey ? '2ГИС API Ключ сохранён' : '2ГИС / OSRM Роутер');
+      alert(dgisApiKey ? '✅ API Ключ 2ГИС сохранён. Теперь расчёты будут обращаться напрямую к routing.api.2gis.com!' : 'Ключ 2ГИС очищен. Используется открытый дорожный граф OSRM.');
+      recalculateWithRouting(false);
+    }
+
+    function updateDgisBadgeStatus(is2gis, text) {
+      const dot = document.getElementById('dgisStatusDot');
+      const txt = document.getElementById('dgisStatusText');
+      if (dot) dot.className = 'status-dot ' + (is2gis ? 'green' : 'yellow');
+      if (txt) txt.innerText = text;
+    }
+
+    function recalculateWithRouting(silent) {
+      const session = getActiveSession();
+      if (!session) {
+        if (!silent) alert('Пожалуйста, выберите или загрузите CSV-файл заявок.');
+        return;
+      }
+
+      const parsed = parseCsv(session.csvInput);
+      if (!parsed || !parsed.requests.length) return;
+
+      const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+      const timeMin = parseMinutesStr(globalRoutingTime) || 540;
+
+      session.solution = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin);
+      session.baseline = solveBaseline(parsed.requests, parsed.depotCoords, isRemote);
+      session.transportMode = globalTransportMode;
+      session.calcTime = globalRoutingTime;
+
+      renderActiveSession();
+    }
+
+    // ==========================================
+    // МОДАЛЬНОЕ ОКНО НЕВЫПОЛНЕННЫХ ЗАЯВОК
+    // ==========================================
+    function openUnassignedModal() {
+      const session = getActiveSession();
+      if (!session || !session.solution) {
+        alert('Пожалуйста, выберите или загрузите CSV-файл.');
+        return;
+      }
+
+      const unassigned = session.solution.unassigned || [];
+      const modal = document.getElementById('unassignedModal');
+      const title = document.getElementById('unassignedModalTitle');
+      const body = document.getElementById('unassignedModalBody');
+
+      if (unassigned.length === 0) {
+        title.innerHTML = '✅ Статус распределения заявок';
+        body.innerHTML = `
+          <div class="all-done-box">
+            <div class="all-done-icon">🎉</div>
+            <div class="all-done-title">Все заявки выполнены</div>
+            <div class="all-done-desc">
+              Все заявки из датасета (<b>${session.reqCount || 0}</b> шт.) успешно распределены по бригадам выездных инженеров с полным соблюдением временных окон клиентов, квалификаций и лимитов смен.
+            </div>
+          </div>
+        `;
+      } else {
+        const totalReqs = session.reqCount || (session.solution.assignedCount + unassigned.length);
+        title.innerHTML = `⚠️ Невыполненные заявки (${unassigned.length} из ${totalReqs})`;
+
+        let html = `
+          <div style="background:#FFF3E0; border:1px solid #FFE082; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px; color:#E65100; display:flex; justify-content:space-between; align-items:center;">
+            <span>Не удалось включить в график: <b>${unassigned.length}</b> заявок</span>
+            <span>Успешно распределено: <b>${session.solution.assignedCount}</b> заявок</span>
+          </div>
+        `;
+
+        unassigned.forEach((item) => {
+          const r = item.req;
+          const catName = r.category === 'accident' ? '🚨 Авария' :
+                          r.category === 'connection' ? '🔌 Подключение' :
+                          r.category === 'repair' ? '🔧 Ремонт' : '📦 Дозаказ';
+          const catClass = r.category === 'accident' ? 'tag-accident' :
+                           r.category === 'connection' ? 'tag-connect' :
+                           r.category === 'repair' ? 'tag-repair' : 'tag-order';
+          const timeStr = `${formatTime(r.winStart)} – ${formatTime(r.winEnd)}`;
+
+          html += `
+            <div class="unassigned-card">
+              <div class="unassigned-card-head">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span class="stop-tag ${catClass}">${catName}</span>
+                  <span>Заявка №${r.id}</span>
+                  ${r.typeHd ? `<span style="font-size:11px; font-weight:normal; color:#666;">(${r.typeHd})</span>` : ''}
+                </div>
+                <div style="font-size:12px; color:#B71C1C; font-weight:700;">
+                  🕒 ${timeStr}
+                </div>
+              </div>
+              <div class="unassigned-card-meta">
+                <span>📍 <b>${r.district}</b>, ${r.address}</span>
+                <span>⏱️ Длительность: <b>${r.durationMin} мин</b></span>
+                ${r.gigabit === 'Да' ? '<span style="color:#D84315; font-weight:700;">⚡ Требуется Гигабит</span>' : ''}
+              </div>
+              <div class="unassigned-reason-box">
+                <b>⚡ Причина невыполнения:</b> ${item.reason}
+              </div>
+            </div>
+          `;
+        });
+
+        body.innerHTML = html;
+      }
+
+      modal.style.display = 'flex';
+    }
+
+    function closeUnassignedModalDirect() {
+      document.getElementById('unassignedModal').style.display = 'none';
+    }
+
+    function closeUnassignedModal(e) {
+      if (e.target.id === 'unassignedModal') {
+        closeUnassignedModalDirect();
+      }
+    }
+
+
+
+    window.onload = function() {
+      if (tabSessions.length === 0 && INITIAL_CSV_LINES) {
+        const rawText = Array.isArray(INITIAL_CSV_LINES) ? INITIAL_CSV_LINES.join(String.fromCharCode(10)) : INITIAL_CSV_LINES;
+        addTabSession('Восток (Синтетический)', rawText);
+      }
       renderTabs();
       renderActiveSession();
     };
   </script>
 </body>
 </html>
+    
