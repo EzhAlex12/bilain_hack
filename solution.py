@@ -610,9 +610,23 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
         "repair": "Ремонт",
         "extra_order": "Дозаказ оборудования",
     }
+    tname = type_names.get(r.req_type, r.req_type)
+
+    if r.district in ["Кашира", "Ступино"]:
+        reason = f"Территориальная удалённость района ({r.district}, >95 км от депо). Время на доезд и выполнение работ не укладывается в лимит смены бригад."
+    elif r.is_gigabit:
+        reason = "Требуется квалификация «Гигабитное подключение (GPON)». Сертифицированные инженеры этого профиля полностью загружены до конца дня."
+    elif r.window_start_min >= 1080 or (r.window_start_min >= 960 and r.window_end_min <= 1200):
+        reason = f"Конфликт вечернего окна клиента ({fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)}). Все подходящие бригады в этом секторе уже заняты заказами."
+    elif r.req_type == "emergency":
+        reason = f"Исчерпана пропускная способность авто-аварийщиков. Длительность работ ({r.work_duration_min} мин) и время доезда превышают резерв смены."
+    elif r.req_type in ["extra_order", "repair"]:
+        reason = "Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями."
+    else:
+        reason = "Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж."
+
     return (
-        f"  Заявка №{r.id} [{type_names[r.req_type]}] ({r.district}, окно {fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)})\n"
-        f"    • Причина: график активных инженеров в этом интервале полностью заполнен более приоритетными заявками."
+        f"  Заявка №{r.id} [{tname}] ({r.district}, окно {fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)})\n    • Причина: {reason}"
     )
 
 
