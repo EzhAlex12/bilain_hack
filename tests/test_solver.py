@@ -8,7 +8,17 @@ import glob
 import os
 import sys
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    class _DummyPytest:
+        class mark:
+            @staticmethod
+            def parametrize(*args, **kwargs):
+                def decorator(fn):
+                    return fn
+                return decorator
+    pytest = _DummyPytest()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -58,3 +68,17 @@ def test_api_has_no_request_in_both_routes_and_unassigned(csv_path):
     assert not set(routed) & set(unassigned)
     assert len(routed) + len(unassigned) == len(requests)
     assert res["stats"]["opt_dropped"] == len(unassigned)
+
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("РЕГРЕССИОННЫЕ ТЕСТЫ РЕШАТЕЛЯ VRP-TW-S-C")
+    print("=" * 70)
+    for p in DATASETS:
+        name = os.path.basename(p)
+        print(f"▶ Тестирование: {name} ...", end=" ", flush=True)
+        test_4pass_is_valid(p)
+        test_optimizer_is_valid_and_complete(p)
+        test_api_has_no_request_in_both_routes_and_unassigned(p)
+        print("✅ OK")
+    print("\n✅ Все тесты успешно пройдены (0 нарушений, 100% валидность)!")
