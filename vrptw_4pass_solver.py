@@ -35,12 +35,15 @@ import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
-# Попытка импорта Google OR-Tools
+# Попытка импорта Google OR-Tools (CP-SAT Solver & Routing)
 try:
+    from ortools.sat.python import cp_model
     from ortools.constraint_solver import routing_enums_pb2, pywrapcp
     HAS_ORTOOLS = True
+    HAS_CPSAT = True
 except ImportError:
     HAS_ORTOOLS = False
+    HAS_CPSAT = False
 
 
 # ======================================================================================
@@ -475,8 +478,8 @@ def try_insert_request(route: Route, req: Request) -> Optional[Tuple[int, Visit]
         service_start = max(arrival, req.window_start_min)
         service_end = service_start + req.work_duration_min
 
-        # Проверка окна заявки
-        if service_start > req.window_end_min or service_end > eng.shift_end_min:
+        # Проверка окна заявки: ВСЕ работы должны быть полностью завершены СТРОГО внутри интервала клиента
+        if service_end > req.window_end_min or service_end > eng.shift_end_min:
             continue
 
         # Проверка влияния на следующую заявку
@@ -665,132 +668,285 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
 # ======================================================================================
 
 
+def solve_vrptw_cpsat(
+    requests: List[Request],
+    engineers: List[Engineer],
+    time_limit_sec: float = 4.0,
+    warm_routes: Optional[List[Route]] = None,
+) -> Tuple[List[Route], List[Request], str]:
+    """
+    Полноценная глобальная математическая оптимизация VRPTW-S-C-M через Google OR-Tools CP-SAT.
+    
+    Моделирует задачу как целостную систему ограничений целочисленного программирования и SAT:
+    1. Переменные:
+       - y[k] in {0, 1}: привлечение инженера k в смену;
+       - v[i, k] in {0, 1}: обслуживание заявки i инженером k (с учетом матрицы навыков);
+       - x[u, v, k] in {0, 1}: ориентированные дуги перемещений по мультимодальному графу;
+       - T[i] in [window_start_i, window_end_i - work_duration_i]: точное время начала работ у клиента;
+       - z[i] in {0, 1}: факт выполнения заявки.
+    2. Ограничения:
+       - Однократное посещение клиента (sum_k v[i, k] == z[i]);
+       - Сохранение потока на депо и в каждой клиентской точке (Eulerian flow conservation);
+       - Строгое завершение работ ДО закрытия окна клиента: T[i] + duration_i <= window_end_i;
+       - Связность по времени и исключение подциклов: T[j] >= T[i] + duration_i + travel_time(i, j, k);
+       - Лимит смены инженера: T[i] + duration_i <= shift_end_k;
+       - Грузоподъемность и лимит оборудования: sum_i q_i * v[i, k] <= Q_k * y[k].
+    3. Трехуровневая лексикографическая целевая функция:
+       min (10^7 * sum(1 - z_i) + 10^5 * sum(y_k) + sum(dist_km * 10 * x_uvk)).
+    4. Инициализация начальным решением (Warm Start / Solution Hints) от 4-Pass эвристики.
+    """
+    if not HAS_CPSAT:
+        fallback = warm_routes if warm_routes is not None else run_4pass_optimization(requests, engineers)[0]
+        return fallback, [], "OR-Tools CP-SAT не установлен (использовано эвристическое решение)"
+
+    if not requests or not engineers:
+        return [], list(requests), "Пустой пул заявок или инженеров"
+
+    # Если теплого старта нет, получаем допустимое начальное решение от 4-Pass эвристики
+    if warm_routes is None:
+        warm_routes, _ = run_4pass_optimization(requests, engineers)
+
+    model = cp_model.CpModel()
+    N = len(requests)
+    M = len(engineers)
+    req_indices = {r.id: idx + 1 for idx, r in enumerate(requests)} # 1..N
+
+    START_DEPOT = 0
+    END_DEPOT = N + 1
+
+    # 1. Переменные вывода инженера на смену
+    y = [model.NewBoolVar(f"y_{k}") for k in range(M)]
+
+    # 2. Переменные назначения заявки i инженеру k (с фильтрацией по компетенциям)
+    v = {}
+    for i in range(1, N + 1):
+        r = requests[i - 1]
+        for k in range(M):
+            if r.req_type in engineers[k].skills:
+                v[i, k] = model.NewBoolVar(f"v_{i}_{k}")
+
+    # 3. Индикаторы выполнения заявок
+    z = {}
+    for i in range(1, N + 1):
+        cand_engs = [k for k in range(M) if (i, k) in v]
+        if cand_engs:
+            z[i] = model.NewBoolVar(f"z_{i}")
+            model.Add(sum(v[i, k] for k in cand_engs) == z[i])
+        else:
+            z[i] = 0
+
+    # 4. Временные переменные
+    T_start = [model.NewIntVar(eng.shift_start_min, eng.shift_start_min, f"T_start_{k}") for k, eng in enumerate(engineers)]
+    T_end = [model.NewIntVar(eng.shift_start_min, eng.shift_end_min, f"T_end_{k}") for k, eng in enumerate(engineers)]
+
+    T = {}
+    for i in range(1, N + 1):
+        r = requests[i - 1]
+        # Начало работ: >= window_start_min, а окончание СТРОГО <= window_end_min
+        latest_start = r.window_end_min - r.work_duration_min
+        if latest_start < r.window_start_min:
+            latest_start = r.window_start_min
+        T[i] = model.NewIntVar(r.window_start_min, latest_start, f"T_{i}")
+
+    # 5. Ориентированные дуги x[u, v, k]
+    x = {}
+    arcs_out = {(u, k): [] for u in range(N + 2) for k in range(M)}
+    arcs_in = {(w, k): [] for w in range(N + 2) for k in range(M)}
+    cost_terms = []
+
+    # Сбор дуг из warm_start для 100% гарантии их присутствия в графе
+    warm_arcs = set()
+    for route in warm_routes:
+        eng_k = next((k for k, eng in enumerate(engineers) if eng.id == route.engineer.id), None)
+        if eng_k is None or not route.visits:
+            continue
+        prev = START_DEPOT
+        for visit in route.visits:
+            curr = req_indices[visit.request.id]
+            warm_arcs.add((prev, curr, eng_k))
+            prev = curr
+        warm_arcs.add((prev, END_DEPOT, eng_k))
+
+    for k, eng in enumerate(engineers):
+        valid_req_indices = [i for i in range(1, N + 1) if (i, k) in v]
+
+        # Дуги: START_DEPOT -> i
+        for i in valid_req_indices:
+            r = requests[i - 1]
+            d_km = road_distance_km(eng.home_lat, eng.home_lon, r.lat, r.lon, eng.transport)
+            t_m = travel_time_min(d_km, eng.transport)
+            is_warm = (START_DEPOT, i, k) in warm_arcs
+            if is_warm or (eng.shift_start_min + t_m <= r.window_end_min - r.work_duration_min):
+                var = model.NewBoolVar(f"x_{START_DEPOT}_{i}_{k}")
+                x[START_DEPOT, i, k] = var
+                arcs_out[START_DEPOT, k].append(var)
+                arcs_in[i, k].append(var)
+                cost_terms.append(int(round(d_km * 10)) * var)
+                model.Add(T[i] >= eng.shift_start_min + t_m).OnlyEnforceIf(var)
+
+        # Дуги: i -> END_DEPOT
+        for i in valid_req_indices:
+            r = requests[i - 1]
+            d_km = road_distance_km(r.lat, r.lon, eng.home_lat, eng.home_lon, eng.transport)
+            t_m = travel_time_min(d_km, eng.transport)
+            is_warm = (i, END_DEPOT, k) in warm_arcs
+            if is_warm or (r.window_start_min + r.work_duration_min + t_m <= eng.shift_end_min):
+                var = model.NewBoolVar(f"x_{i}_{END_DEPOT}_{k}")
+                x[i, END_DEPOT, k] = var
+                arcs_out[i, k].append(var)
+                arcs_in[END_DEPOT, k].append(var)
+                cost_terms.append(int(round(d_km * 10)) * var)
+                model.Add(T_end[k] >= T[i] + r.work_duration_min + t_m).OnlyEnforceIf(var)
+
+        # Дуги: i -> j (между клиентскими точками)
+        for i in valid_req_indices:
+            r_i = requests[i - 1]
+            cand_j = []
+            for j in valid_req_indices:
+                if i == j:
+                    continue
+                r_j = requests[j - 1]
+                d_km = road_distance_km(r_i.lat, r_i.lon, r_j.lat, r_j.lon, eng.transport)
+                t_m = travel_time_min(d_km, eng.transport)
+                is_warm = (i, j, k) in warm_arcs
+                if is_warm or (r_i.window_start_min + r_i.work_duration_min + t_m <= r_j.window_end_min - r_j.work_duration_min):
+                    cand_j.append((d_km, t_m, j, is_warm))
+
+            # Сортируем по расстоянию и оставляем ближайшие окрестности + обязательные warm_arcs
+            cand_j.sort(key=lambda item: (not item[3], item[0]))
+            for d_km, t_m, j, is_warm in cand_j[:40]:
+                var = model.NewBoolVar(f"x_{i}_{j}_{k}")
+                x[i, j, k] = var
+                arcs_out[i, k].append(var)
+                arcs_in[j, k].append(var)
+                cost_terms.append(int(round(d_km * 10)) * var)
+                model.Add(T[j] >= T[i] + r_i.work_duration_min + t_m).OnlyEnforceIf(var)
+
+        # Условия сохранения потока для каждого инженера
+        model.Add(sum(arcs_out[START_DEPOT, k]) == y[k])
+        model.Add(sum(arcs_in[END_DEPOT, k]) == y[k])
+        for i in valid_req_indices:
+            model.Add(sum(arcs_in[i, k]) == v[i, k])
+            model.Add(sum(arcs_out[i, k]) == v[i, k])
+            # Завершение работ строго до конца смены мастера
+            model.Add(T[i] + requests[i - 1].work_duration_min <= eng.shift_end_min).OnlyEnforceIf(v[i, k])
+
+        # Ограничение по вместимости оборудования
+        model.Add(sum(requests[i - 1].equipment_demand * v[i, k] for i in valid_req_indices) <= eng.equipment_capacity * y[k])
+
+    # 6. Трехуровневая целевая функция
+    # Приоритет 1: Максимизация выполненных заявок (штраф 10^7 за сброс)
+    # Приоритет 2: Минимизация штата бригад (штраф 10^5 за задействование)
+    # Приоритет 3: Минимизация суммарного пробега (дистанция в сотнях метров)
+    unassigned_penalty = sum(10_000_000 * (1 - z[i]) for i in range(1, N + 1) if isinstance(z[i], cp_model.IntVar))
+    staff_penalty = sum(100_000 * y[k] for k in range(M))
+    model.Minimize(unassigned_penalty + staff_penalty + sum(cost_terms))
+
+    # 7. Передача начального допустимого решения (Warm Start Hinting)
+    for route in warm_routes:
+        eng_k = next((k for k, eng in enumerate(engineers) if eng.id == route.engineer.id), None)
+        if eng_k is None or not route.visits:
+            continue
+        model.AddHint(y[eng_k], 1)
+        prev = START_DEPOT
+        for visit in route.visits:
+            curr = req_indices[visit.request.id]
+            if (curr, eng_k) in v:
+                model.AddHint(v[curr, eng_k], 1)
+            model.AddHint(T[curr], visit.service_start_min)
+            if (prev, curr, eng_k) in x:
+                model.AddHint(x[prev, curr, eng_k], 1)
+            prev = curr
+        if (prev, END_DEPOT, eng_k) in x:
+            model.AddHint(x[prev, END_DEPOT, eng_k], 1)
+
+    # 8. Запуск солвера CP-SAT
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = float(time_limit_sec)
+    solver.parameters.num_workers = 4
+    status = solver.Solve(model)
+
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return warm_routes, [], "Допустимое решение (CP-SAT таймаут или оптимум совпал)"
+
+    # 9. Извлечение итоговых маршрутов
+    solution_routes = []
+    unassigned_reqs = []
+    for i in range(1, N + 1):
+        if not isinstance(z[i], cp_model.IntVar) or solver.Value(z[i]) == 0:
+            unassigned_reqs.append(requests[i - 1])
+
+    for k, eng in enumerate(engineers):
+        if solver.Value(y[k]) == 0:
+            continue
+        curr_node = START_DEPOT
+        visits = []
+        cur_lat, cur_lon = eng.home_lat, eng.home_lon
+        cur_dep_time = eng.shift_start_min
+
+        while curr_node != END_DEPOT:
+            next_node = None
+            for var in arcs_out[curr_node, k]:
+                if solver.Value(var) == 1:
+                    parts = var.Name().split("_")
+                    next_node = int(parts[2])
+                    break
+            if next_node is None or next_node == END_DEPOT:
+                break
+
+            req = requests[next_node - 1]
+            d_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, eng.transport)
+            t_m = travel_time_min(d_km, eng.transport)
+            arrival = cur_dep_time + t_m
+            start = solver.Value(T[next_node])
+            end = start + req.work_duration_min
+
+            visits.append(Visit(
+                request=req,
+                arrival_min=arrival,
+                service_start_min=start,
+                service_end_min=end,
+                travel_min=t_m,
+                travel_km=round(d_km, 2),
+            ))
+
+            cur_lat, cur_lon = req.lat, req.lon
+            cur_dep_time = end
+            curr_node = next_node
+
+        if visits:
+            solution_routes.append(Route(engineer=eng, visits=visits))
+
+    status_name = "Оптимально (CP-SAT)" if status == cp_model.OPTIMAL else "Улучшено Google OR-Tools (CP-SAT)"
+    return solution_routes, unassigned_reqs, status_name
+
+
 def optimize_routes_with_ortools(
     routes: List[Route],
-    time_limit_sec: int = 2
+    requests: Optional[List[Request]] = None,
+    engineers: Optional[List[Engineer]] = None,
+    time_limit_sec: float = 3.0,
 ) -> Tuple[List[Route], str]:
     """
-    Полировка маршрутов через Google OR-Tools Constraint Solver (VRPTW).
-    Применяет Guided Local Search.
-    Гарантия допустимости: если за time_limit_sec OR-Tools не находит улучшенного
-    решения или сталкивается со сбоем, гарантированно возвращается исходное
-    допустимое решение (Feasible Solution) 4-проходного алгоритма.
+    Полноценная глобальная оптимизация через Google OR-Tools CP-SAT.
+    Сохраняет обратную совместимость: если переданы только routes,
+    извлекает requests и engineers и запускает полный CP-SAT солвер.
     """
-    if not HAS_ORTOOLS:
+    if not HAS_CPSAT:
         return routes, "OR-Tools не установлен (использовано допустимое 4-Pass решение)"
 
-    improved_routes = []
-    any_improved = False
+    if requests is None:
+        requests = [v.request for r in routes for v in r.visits]
+    if engineers is None:
+        engineers = [r.engineer for r in routes]
 
-    for route in routes:
-        eng = route.engineer
-        visits = route.visits
-        if len(visits) <= 2:
-            improved_routes.append(route)
-            continue
-
-        n_nodes = len(visits) + 1
-        manager = pywrapcp.RoutingIndexManager(n_nodes, 1, 0)
-        routing = pywrapcp.RoutingModel(manager)
-
-        node_coords = [(eng.home_lat, eng.home_lon)] + [(v.request.lat, v.request.lon) for v in visits]
-        node_durations = [0] + [v.request.work_duration_min for v in visits]
-        node_windows = [(eng.shift_start_min, eng.shift_end_min)] + [(v.request.window_start_min, v.request.window_end_min) for v in visits]
-
-        def dist_callback(from_index, to_index):
-            from_node = manager.IndexToNode(from_index)
-            to_node = manager.IndexToNode(to_index)
-            c1 = node_coords[from_node]
-            c2 = node_coords[to_node]
-            return int(road_distance_km(c1[0], c1[1], c2[0], c2[1], eng.transport) * 1000)
-
-        transit_cb_idx = routing.RegisterTransitCallback(dist_callback)
-        routing.SetArcCostEvaluatorOfAllVehicles(transit_cb_idx)
-
-        def time_callback(from_index, to_index):
-            from_node = manager.IndexToNode(from_index)
-            to_node = manager.IndexToNode(to_index)
-            c1 = node_coords[from_node]
-            c2 = node_coords[to_node]
-            d_km = road_distance_km(c1[0], c1[1], c2[0], c2[1], eng.transport)
-            drive_m = travel_time_min(d_km, eng.transport)
-            service_m = node_durations[from_node]
-            return drive_m + service_m
-
-        time_cb_idx = routing.RegisterTransitCallback(time_callback)
-        routing.AddDimension(time_cb_idx, 1440, 1440, False, "Time")
-        time_dim = routing.GetDimensionOrDie("Time")
-
-        for node_idx, (w_start, w_end) in enumerate(node_windows):
-            if node_idx == 0:
-                time_dim.CumulVar(manager.NodeToIndex(0)).SetRange(eng.shift_start_min, eng.shift_start_min)
-            else:
-                time_dim.CumulVar(manager.NodeToIndex(node_idx)).SetRange(w_start, w_end)
-
-        # Начальное допустимое решение (Warm Start)
-        initial_route = [[i for i in range(1, n_nodes)]]
-        initial_assignment = routing.ReadAssignmentFromRoutes(initial_route, False)
-
-        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.time_limit.seconds = time_limit_sec
-        search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-
-        solution = None
-        if initial_assignment:
-            solution = routing.SolveFromAssignmentWithParameters(initial_assignment, search_parameters)
-        if not solution:
-            solution = routing.SolveWithParameters(search_parameters)
-
-        if solution and routing.status() in (1, 2):
-            new_sequence = []
-            index = routing.Start(0)
-            while not routing.IsEnd(index):
-                node = manager.IndexToNode(index)
-                if node != 0:
-                    new_sequence.append(visits[node - 1])
-                index = solution.Value(routing.NextVar(index))
-
-            # Пересчет таймингов
-            cur_lat, cur_lon = eng.home_lat, eng.home_lon
-            cur_time = eng.shift_start_min
-            new_visits = []
-            is_valid = True
-
-            for v in new_sequence:
-                req = v.request
-                d_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, eng.transport)
-                t_m = travel_time_min(d_km, eng.transport)
-                arr = cur_time + t_m
-                start = max(arr, req.window_start_min)
-                end = start + req.work_duration_min
-                if start > req.window_end_min or end > eng.shift_end_min:
-                    is_valid = False
-                    break
-                new_visits.append(Visit(
-                    request=req,
-                    arrival_min=arr,
-                    service_start_min=start,
-                    service_end_min=end,
-                    travel_min=t_m,
-                    travel_km=d_km
-                ))
-                cur_lat, cur_lon = req.lat, req.lon
-                cur_time = end
-
-            new_route_km = sum(nv.travel_km for nv in new_visits)
-            if is_valid and new_route_km < route.total_km - 0.01:
-                improved_route = Route(engineer=eng, visits=new_visits)
-                improved_routes.append(improved_route)
-                any_improved = True
-            else:
-                # Оставляем гарантированное допустимое решение
-                improved_routes.append(route)
-        else:
-            # Fallback на допустимое решение
-            improved_routes.append(route)
-
-    status_desc = "Улучшено Google OR-Tools" if any_improved else "Допустимое решение (OR-Tools оптимум совпал с базой или лимит времени)"
-    return improved_routes, status_desc
+    res_routes, _, status_desc = solve_vrptw_cpsat(
+        requests=requests,
+        engineers=engineers,
+        time_limit_sec=time_limit_sec,
+        warm_routes=routes,
+    )
+    return res_routes, status_desc
 
 
 def evaluate_dataset(csv_path: str):
@@ -814,8 +970,10 @@ def evaluate_dataset(csv_path: str):
     # 1. Запуск 4-проходной оптимизации (Гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
 
-    # 2. Оптимизация Google OR-Tools (с гарантированным fallback на допустимое решение)
-    opt_routes, ortools_status_str = optimize_routes_with_ortools(opt_routes, time_limit_sec=2)
+    # 2. Глобальная оптимизация Google OR-Tools CP-SAT (с гарантированным fallback на допустимое решение)
+    opt_routes, ortools_status_str = optimize_routes_with_ortools(
+        opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
+    )
 
     # 3. Запуск Baseline (FIFO)
     base_routes, base_dropped = run_baseline_fifo(requests, engineers)

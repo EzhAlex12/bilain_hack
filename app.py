@@ -93,10 +93,12 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
     opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
 
-    # 2. Оптимизация через Google OR-Tools (с гарантированным fallback на допустимое решение)
+    # 2. Оптимизация через Google OR-Tools CP-SAT (глобальное математическое программирование)
     ortools_status = '4-Pass Feasible (OR-Tools не установлен)'
     if solver.HAS_ORTOOLS:
-        opt_routes, ortools_status = solver.optimize_routes_with_ortools(opt_routes, time_limit_sec=1)
+        opt_routes, ortools_status = solver.optimize_routes_with_ortools(
+            opt_routes, requests=requests, engineers=engineers, time_limit_sec=2.5
+        )
 
     # 3. Baseline FIFO
     base_routes, base_dropped = solver.run_baseline_fifo(requests, engineers)

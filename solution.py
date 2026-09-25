@@ -50,8 +50,10 @@ def evaluate_dataset(csv_path: str) -> None:
     # 1. 4-Pass оптимизация (гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
 
-    # 2. Полировка через OR-Tools (с fallback на допустимое решение)
-    opt_routes, ortools_status_str = optimize_routes_with_ortools(opt_routes, time_limit_sec=2)
+    # 2. Глобальная оптимизация через Google OR-Tools CP-SAT (полная модель VRPTW-S-C-M)
+    opt_routes, ortools_status_str = optimize_routes_with_ortools(
+        opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
+    )
 
     # 3. Baseline FIFO для сравнения
     base_routes, base_dropped = run_baseline_fifo(requests, engineers)
