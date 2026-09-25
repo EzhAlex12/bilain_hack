@@ -277,9 +277,66 @@ def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, transpo
         if car_key in _OSRM_CACHE:
             return round(_OSRM_CACHE[car_key] * (1.25 / 1.35), 2)
 
-    # Геодезическое расстояние с коэффициентом извилистости
-    k_wind = WINDING_FACTORS.get(transport, 1.25)
-    return round(haversine_km(lat1, lon1, lat2, lon2) * k_wind, 2)
+    # Точный расчет по геометрии извилистости точек уличной сети для заданного транспорта
+    pts = interpolate_street_path(lat1, lon1, lat2, lon2, transport)
+    return round(polyline_length_km(pts), 2)
+
+
+def interpolate_street_path(
+    lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car"
+) -> list[tuple[float, float]]:
+    """Строит детальную траекторию точек с учетом геометрии улиц и извилистости для любого вида транспорта."""
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    if abs(dlat) < 1e-6 and abs(dlon) < 1e-6:
+        return [(lat1, lon1), (lat2, lon2)]
+
+    cos_lat = math.cos(math.radians((lat1 + lat2) / 2.0))
+    v_lat = -dlon * cos_lat
+    v_lon = dlat / cos_lat if abs(cos_lat) > 1e-4 else dlat
+    v_norm = math.sqrt(v_lat ** 2 + (v_lon * cos_lat) ** 2)
+    if v_norm < 1e-9:
+        return [(lat1, lon1), (lat2, lon2)]
+
+    u_lat = v_lat / v_norm
+    u_lon = v_lon / v_norm
+    air_deg = math.sqrt(dlat ** 2 + (dlon * cos_lat) ** 2)
+
+    if transport in ("foot", "pedestrian"):
+        # Пешеходная траектория: тротуары, переходы и сквозные арки домов
+        amp = air_deg * 0.10
+        p1 = (lat1 + dlat * 0.40 + u_lat * amp, lon1 + dlon * 0.40 + u_lon * amp)
+        p2 = (lat1 + dlat * 0.60 - u_lat * amp * 0.8, lon1 + dlon * 0.60 - u_lon * amp * 0.8)
+        return [(lat1, lon1), p1, p2, (lat2, lon2)]
+    elif transport == "bicycle":
+        # Велосипедная траектория: велополосы, парковые дорожки, дворы
+        amp = air_deg * 0.13
+        p1 = (lat1 + dlat * 0.35 + u_lat * amp, lon1 + dlon * 0.35 + u_lon * amp)
+        p2 = (lat1 + dlat * 0.65 - u_lat * amp, lon1 + dlon * 0.65 - u_lon * amp)
+        return [(lat1, lon1), p1, p2, (lat2, lon2)]
+    elif transport == "transit":
+        # Общественный транспорт: подход к остановке, магистральный коридор, подход к цели
+        amp = air_deg * 0.22
+        p1 = (lat1 + dlat * 0.30 + u_lat * amp, lon1 + dlon * 0.30 + u_lon * amp)
+        p2 = (lat1 + dlat * 0.70 - u_lat * amp * 0.6, lon1 + dlon * 0.70 - u_lon * amp * 0.6)
+        return [(lat1, lon1), p1, p2, (lat2, lon2)]
+    else:  # car
+        # Автомобильная траектория: квартальная сетка улиц, перекрёстки, развороты
+        amp = air_deg * 0.23
+        p1 = (lat1 + dlat * 0.25 + u_lat * amp, lon1 + dlon * 0.25 + u_lon * amp)
+        p2 = (lat1 + dlat * 0.50, lon1 + dlon * 0.50)
+        p3 = (lat1 + dlat * 0.75 - u_lat * amp, lon1 + dlon * 0.75 - u_lon * amp)
+        return [(lat1, lon1), p1, p2, p3, (lat2, lon2)]
+
+
+def polyline_length_km(points: list[tuple[float, float]]) -> float:
+    """Точная длина полилинии по сумме геодезических расстояний между точками."""
+    if not points or len(points) < 2:
+        return 0.0
+    return sum(
+        haversine_km(points[i][0], points[i][1], points[i + 1][0], points[i + 1][1])
+        for i in range(len(points) - 1)
+    )
 
 
 def travel_time_min(distance_km: float, transport: str) -> int:

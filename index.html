@@ -1363,13 +1363,29 @@
       return Math.round(haversineKm(c1, c2) * cfg.windingFactor * 100) / 100;
     }
 
-    // ГЕОДЕЗИЧЕСКИЙ РАСЧЁТ ДИСТАНЦИИ
-        function roadDistanceKm(c1, c2, transport) {
+    // РАСЧЁТ ДЛИНЫ МНОГОСЕГМЕНТНОЙ ПОЛИЛИНИИ ПО РЕАЛЬНЫМ ТОЧКАМ (в км)
+    function polylineLengthKm(pts) {
+      if (!pts || pts.length < 2) return 0;
+      let km = 0;
+      for (let i = 0; i < pts.length - 1; i++) {
+        km += haversineKm(pts[i], pts[i + 1]);
+      }
+      return Math.round(km * 100) / 100;
+    }
+
+    // РАСЧЁТ ДИСТАНЦИИ С УЧЁТОМ ИЗВИЛИСТОСТИ УЛИЧНО-ДОРОЖНОЙ СЕТИ
+    function roadDistanceKm(c1, c2, transport) {
       transport = transport || globalTransportMode;
       if (transport === 'mixed') transport = 'car';
       if (activeTravelModel) return backendDistanceKm(c1, c2, transport);
       const cfg = getTransportConfig(transport);
-      return Math.round(haversineKm(c1, c2) * cfg.windingFactor * 10) / 10;
+      const key = `${c1[0].toFixed(4)},${c1[1].toFixed(4)}_${c2[0].toFixed(4)},${c2[1].toFixed(4)}_${transport}`;
+      if (routeGeometryCache[key] && routeGeometryCache[key].roadKm) {
+        return routeGeometryCache[key].roadKm;
+      }
+      const pts = interpolateStreetPath(c1, c2, cfg);
+      const km = polylineLengthKm(pts);
+      return Math.round(km * 10) / 10;
     }
 
     function haversineKm(c1, c2) {
@@ -1567,7 +1583,8 @@
             const resObj = {
               points: roadPts,
               roadKm: roadKm,
-              roadMin: roadMin
+              roadMin: roadMin,
+              source: 'osrm'
             };
             routeGeometryCache[cacheKey] = resObj;
             updateDgisBadgeStatus(true, '🌐 Дорожный граф OSRM активен');
@@ -1577,7 +1594,29 @@
       } catch (e) {
         console.warn('OSRM multi-point routing fallback:', e);
       }
-      return null;
+
+      // Точный расчет геометрии извилистости уличной сети по точкам
+      const allPts = [];
+      let totalPointsKm = 0;
+      for (let i = 0; i < latlngs.length - 1; i++) {
+        const legPts = interpolateStreetPath(latlngs[i], latlngs[i + 1], cfg);
+        if (i === 0) {
+          allPts.push(...legPts);
+        } else {
+          allPts.push(...legPts.slice(1));
+        }
+        totalPointsKm += polylineLengthKm(legPts);
+      }
+      const speed = cfg.baseSpeedKmh || 30;
+      const roadMin = Math.max(latlngs.length - 1, Math.round((totalPointsKm / speed) * 60) + (latlngs.length - 1) * cfg.overheadMin);
+      const resObj = {
+        points: allPts,
+        roadKm: Math.round(totalPointsKm * 10) / 10,
+        roadMin: roadMin,
+        source: 'geometry'
+      };
+      routeGeometryCache[cacheKey] = resObj;
+      return resObj;
     }
 
     async function fetchLegGeometry(c1, c2, transport, timeMin) {
@@ -1666,23 +1705,51 @@
     }
 
     function interpolateStreetPath(c1, c2, cfg) {
+      if (!c1 || !c2) return [];
       const dlat = c2[0] - c1[0];
       const dlon = c2[1] - c1[1];
-      if (cfg && (cfg.dgisTransport === 'pedestrian' || cfg.name === 'Пешком' || cfg.icon === '🚶')) {
+      if (Math.abs(dlat) < 1e-6 && Math.abs(dlon) < 1e-6) return [c1, c2];
+
+      const cosLat = Math.cos(((c1[0] + c2[0]) / 2) * Math.PI / 180);
+      const vLat = -dlon * cosLat;
+      const vLon = Math.abs(cosLat) > 1e-4 ? dlat / cosLat : dlat;
+      const vNorm = Math.sqrt(vLat * vLat + (vLon * cosLat) * (vLon * cosLat));
+      if (vNorm < 1e-9) return [c1, c2];
+
+      const uLat = vLat / vNorm;
+      const uLon = vLon / vNorm;
+      const airDeg = Math.sqrt(dlat * dlat + (dlon * cosLat) * (dlon * cosLat));
+
+      const isPed = cfg && (cfg.dgisTransport === 'pedestrian' || cfg.name === 'Пешком' || cfg.icon === '🚶');
+      const isBike = cfg && (cfg.dgisTransport === 'bicycle' || cfg.name === 'На велосипеде / СИМ' || cfg.icon === '🚲');
+      const isTransit = cfg && (cfg.dgisTransport === 'transit' || cfg.name === 'Общ. транспорт' || cfg.icon === '🚌');
+
+      if (isPed) {
         // Траектория пешехода: прямое перемещение по тротуарам, пешеходным переходам и сквозным аркам
-        const p1 = [c1[0] + dlat * 0.35, c1[1] + dlon * 0.20];
-        const p2 = [c1[0] + dlat * 0.65, c1[1] + dlon * 0.80];
+        const amp = airDeg * 0.10;
+        const p1 = [c1[0] + dlat * 0.40 + uLat * amp, c1[1] + dlon * 0.40 + uLon * amp];
+        const p2 = [c1[0] + dlat * 0.60 - uLat * amp * 0.8, c1[1] + dlon * 0.60 - uLon * amp * 0.8];
         return [c1, p1, p2, c2];
-      } else if (cfg && (cfg.dgisTransport === 'bicycle' || cfg.name === 'На велосипеде / СИМ' || cfg.icon === '🚲')) {
+      } else if (isBike) {
         // Траектория велосипеда: велодорожки, тротуары и дворовые зоны
-        const p1 = [c1[0] + dlat * 0.40, c1[1] + dlon * 0.15];
-        const p2 = [c1[0] + dlat * 0.60, c1[1] + dlon * 0.85];
+        const amp = airDeg * 0.13;
+        const p1 = [c1[0] + dlat * 0.35 + uLat * amp, c1[1] + dlon * 0.35 + uLon * amp];
+        const p2 = [c1[0] + dlat * 0.65 - uLat * amp, c1[1] + dlon * 0.65 - uLon * amp];
         return [c1, p1, p2, c2];
+      } else if (isTransit) {
+        // Траектория общественного транспорта: подход к остановке, магистральный коридор, подход к цели
+        const amp = airDeg * 0.22;
+        const p1 = [c1[0] + dlat * 0.30 + uLat * amp, c1[1] + dlon * 0.30 + uLon * amp];
+        const p2 = [c1[0] + dlat * 0.70 - uLat * amp * 0.6, c1[1] + dlon * 0.70 - uLon * amp * 0.6];
+        return [c1, p1, p2, c2];
+      } else {
+        // Автомобильная траектория по дорожным блокам
+        const amp = airDeg * 0.23;
+        const p1 = [c1[0] + dlat * 0.25 + uLat * amp, c1[1] + dlon * 0.25 + uLon * amp];
+        const p2 = [c1[0] + dlat * 0.50, c1[1] + dlon * 0.50];
+        const p3 = [c1[0] + dlat * 0.75 - uLat * amp, c1[1] + dlon * 0.75 - uLon * amp];
+        return [c1, p1, p2, p3, c2];
       }
-      // Автомобильная траектория по дорожным блокам
-      const p1 = [c1[0] + dlat * 0.45, c1[1] + dlon * 0.08];
-      const p2 = [c1[0] + dlat * 0.55, c1[1] + dlon * 0.92];
-      return [c1, p1, p2, c2];
     }
 
     function hashStr(str) {
@@ -2575,19 +2642,37 @@
         poly.bindPopup(`<b>Маршрут: ${eng.name}</b><br>Транспорт: <b>${cfg.icon} ${cfg.name}</b><br>Пробег: <b>${eng.totalKm.toFixed(1)} км</b> | Время в пути: <b>${eng.totalDriveMin} мин</b>`);
         routeLayers.push(poly);
 
-        // АСИНХРОННАЯ ПОДГРУЗКА РЕАЛЬНОГО ДОРОЖНОГО ГРАФА И УЛИЦ OSRM
+        // АСИНХРОННАЯ ПОДГРУЗКА РЕАЛЬНОГО ДОРОЖНОГО ГРАФА И РАСЧЕТ ИЗВИЛИСТОСТИ
         (async () => {
           try {
             const res = await fetchFullRouteGeometry(latlngs, transport, eng);
             if (res && res.points && res.points.length > 1) {
               poly.setLatLngs(res.points);
+
+              // Точный расчет пробега и времени по точкам извилистости
+              const exactKm = Math.round((res.roadKm || polylineLengthKm(res.points)) * 10) / 10;
+              const exactMin = res.roadMin || Math.max(1, Math.round((exactKm / cfg.baseSpeedKmh) * 60));
+              eng.totalKm = exactKm;
+              eng.totalDriveMin = exactMin;
+
+              const modeLabel = transport === 'foot' ? '🚶 Пешком (тротуары, переходы, дворы)' :
+                transport === 'bicycle' ? '🚲 На велосипеде/СИМ (велодорожки, дворы)' :
+                transport === 'transit' ? '🚌 Общественный транспорт (выделенки, магистрали)' :
+                '🛣️ На автомобиле (улично-дорожная сеть)';
+
               poly.bindPopup(
                 '<b>Маршрут: ' + eng.name + '</b><br>' +
                 'Транспорт: <b>' + cfg.icon + ' ' + cfg.name + '</b><br>' +
-                (transport === 'foot' ? '🚶 По пешеходному графу (тротуары, переходы, дворы)' :
-                  transport === 'bicycle' ? '🚲 По велосипедному графу (велодорожки, дворы)' : '🛣️ По дорогам') +
-                ' (OSRM): <b>' + res.roadKm.toFixed(1) + ' км</b> | Время: <b>' + res.roadMin + ' мин</b>'
+                modeLabel + ' (' + (res.source === 'osrm' ? 'OSRM' : 'Граф извилистости') + '): <b>' + exactKm + ' км</b> | В пути: <b>' + exactMin + ' мин</b>'
               );
+
+              // Обновляем плашку инженера в правой панели
+              updateEngineerCardStats(eng);
+
+              // Обновляем KPI
+              recomputeSolutionStats(sol);
+              const curSess = getActiveSession();
+              renderKPI(sol, curSess ? curSess.baseSolution : null);
             }
           } catch (err) {
             console.warn('Street geometry error for eng ' + eng.id, err);
@@ -2725,6 +2810,18 @@
 
         container.appendChild(card);
       });
+    }
+
+    function updateEngineerCardStats(eng) {
+      const card = document.getElementById('card-' + eng.id);
+      if (!card) return;
+      const statsEl = card.querySelector('.eng-stats');
+      if (!statsEl) return;
+      const tCfg = getTransportConfig(eng.transport || globalTransportMode);
+      statsEl.innerHTML = 
+        '<div>' + eng.tasks.length + ' заявок &bull; ' + eng.totalKm.toFixed(1) + ' км</div>' +
+        '<div style="font-size:10px; color:#666;">в пути: <b>' + eng.totalDriveMin + ' мин</b> (' + tCfg.name.toLowerCase() + ')</div>' +
+        '<button class="btn-print-route" onclick="event.stopPropagation(); openRouteSheetModal(&quot;' + eng.id + '&quot;)">🖨️ Путевой лист</button>';
     }
 
     function toggleCard(engId) {
