@@ -1333,10 +1333,41 @@
     let routeLayers = [];
     let markerLayers = [];
 
+    // МОДЕЛЬ ПЕРЕМЕЩЕНИЙ БЭКЕНДА
+    // Для решения, полученного с Python-сервера (OR-Tools), расстояния и время в пути считаются
+    // ровно как в vrptw_4pass_solver.py: матрица road_distance_km с сервера (OSRM-кеш + извилистость),
+    // время = max(1, round(км / скорость * 60)) без пробок и накладных минут. Иначе инциденты и
+    // ручное переназначение пересчитывали бы серверный план по другой модели и находили «нарушения».
+    let activeTravelModel = null;
+    const travelModelIndex = new WeakMap();
+
+    function pyRound(x) {
+      // round() в Python — банковское округление (к чётному при .5)
+      const r = Math.round(x);
+      return (Math.abs(x % 1) === 0.5) ? 2 * Math.round(x / 2) : r;
+    }
+
+    function backendDistanceKm(c1, c2, transport) {
+      if (c1[0] === c2[0] && c1[1] === c2[1]) return 0;
+      let idx = travelModelIndex.get(activeTravelModel);
+      if (!idx) {
+        idx = new Map(activeTravelModel.points.map((p, i) => [p[0] + ',' + p[1], i]));
+        travelModelIndex.set(activeTravelModel, idx);
+      }
+      const i = idx.get(c1[0] + ',' + c1[1]);
+      const j = idx.get(c2[0] + ',' + c2[1]);
+      const matrix = activeTravelModel.dist[transport];
+      if (matrix && i !== undefined && j !== undefined) return matrix[i][j];
+      // Точки вне матрицы (например, новая авария): как fallback road_distance_km бэкенда
+      const cfg = getTransportConfig(transport);
+      return Math.round(haversineKm(c1, c2) * cfg.windingFactor * 100) / 100;
+    }
+
     // ГЕОДЕЗИЧЕСКИЙ РАСЧЁТ ДИСТАНЦИИ
         function roadDistanceKm(c1, c2, transport) {
       transport = transport || globalTransportMode;
       if (transport === 'mixed') transport = 'car';
+      if (activeTravelModel) return backendDistanceKm(c1, c2, transport);
       const cfg = getTransportConfig(transport);
       return Math.round(haversineKm(c1, c2) * cfg.windingFactor * 10) / 10;
     }
@@ -1414,6 +1445,9 @@
           ignoreTraffic: true,
           dgisTransport: 'bicycle',
           osrmProfile: 'bike',
+          // Демо-сервер router.project-osrm.org держит только автомобильный граф (профиль в URL игнорируется),
+          // поэтому велосипед строится на FOSSGIS: велодорожки, дворы, тротуары
+          osrmRouteBase: 'https://routing.openstreetmap.de/routed-bike/route/v1/driving/',
           dashArray: '8, 8',
           weight: 4,
           modeDesc: 'Велодорожки, тротуары и дворовые зоны'
@@ -1428,6 +1462,8 @@
           ignoreTraffic: true,
           dgisTransport: 'pedestrian',
           osrmProfile: 'foot',
+          // Пешеходный граф FOSSGIS: тротуары, переходы, дворы и сквозные проходы
+          osrmRouteBase: 'https://routing.openstreetmap.de/routed-foot/route/v1/driving/',
           dashArray: '3, 6',
           weight: 3.5,
           modeDesc: 'Тротуары, переходы и сквозные арки домов'
@@ -1453,6 +1489,10 @@
     function travelTimeMin(c1, c2, transport, timeMin) {
       transport = transport || globalTransportMode;
       if (transport === 'mixed') transport = 'car';
+      if (activeTravelModel) {
+        const speed = activeTravelModel.speed[transport] || 30;
+        return Math.max(1, pyRound(backendDistanceKm(c1, c2, transport) / speed * 60));
+      }
       const cfg = getTransportConfig(transport);
       const airDistKm = haversineKm(c1, c2);
       const roadDistKm = airDistKm * cfg.windingFactor;
@@ -1469,6 +1509,13 @@
 
     // ПОЛУЧЕНИЕ РЕАЛЬНОЙ ГЕОМЕТРИИ ДОРОГ ЧЕРЕЗ 2ГИС / OSRM
     
+    // URL маршрута OSRM под вид транспорта: пешеходы и велосипеды — отдельные графы FOSSGIS,
+    // авто и общественный транспорт — автомобильный граф демо-сервера OSRM
+    function osrmRouteUrl(cfg, coordsStr) {
+      const base = cfg.osrmRouteBase || ('https://router.project-osrm.org/route/v1/' + cfg.osrmProfile + '/');
+      return base + coordsStr + '?overview=full&geometries=geojson';
+    }
+
     // МУЛЬТИ-ТОЧЕЧНЫЙ ЗАПРОС ДОРОЖНОГО ГРАФА OSRM (1 запрос на весь маршрут бригады)
     async function fetchFullRouteGeometry(latlngs, transport, eng) {
       if (!latlngs || latlngs.length < 2) return null;
@@ -1483,7 +1530,7 @@
 
       try {
         const coordsStr = latlngs.map(pt => pt[1].toFixed(5) + ',' + pt[0].toFixed(5)).join(';');
-        const url = 'https://router.project-osrm.org/route/v1/' + cfg.osrmProfile + '/' + coordsStr + '?overview=full&geometries=geojson';
+        const url = osrmRouteUrl(cfg, coordsStr);
 
         const ctrl = new AbortController();
         const tId = setTimeout(() => ctrl.abort(), 4500);
@@ -1565,7 +1612,7 @@
 
       // 2. Высокоточный открытый дорожный граф OSRM
       try {
-        const url = `https://router.project-osrm.org/route/v1/${cfg.osrmProfile}/${c1[1]},${c1[0]};${c2[1]},${c2[0]}?overview=full&geometries=geojson`;
+        const url = osrmRouteUrl(cfg, `${c1[1]},${c1[0]};${c2[1]},${c2[0]}`);
         const resp = await fetch(url);
         if (resp.ok) {
           const data = await resp.json();
@@ -1776,25 +1823,41 @@
 
         if (district && !districtHint) districtHint = district;
 
+        // Нормативы чистой работы синхронизированы с бэкендом (WORK_DURATION_MIN в vrptw_4pass_solver.py):
+        // авария 80, подключение 70, ремонт 30, дозаказ 20 мин
         let category = 'repair';
         let reqSkill = 'local_repair';
         let durationMin = 30;
 
-        const lowBk = typeBk.toLowerCase();
+        const lowBk = typeBk.toLowerCase().trim();
         const lowHd = typeHd.toLowerCase();
 
-        if (lowBk.includes('подключение') || lowHd.includes('конвергенция') || lowHd.includes('подключение')) {
+        // Как в BK_TYPE_MAP бэкенда: тип определяется по «Тип заявки BK», HD — только если BK не распознан
+        const bkCategory = {
+          'подключение': 'connection',
+          'локальная заявка': 'repair',
+          'глобальная проблема': 'accident',
+          'дозаказ': 'additional_order'
+        }[lowBk];
+        let resolved = bkCategory;
+        if (!resolved) {
+          if (lowBk.includes('подключение') || lowHd.includes('конвергенция') || lowHd.includes('подключение')) resolved = 'connection';
+          else if (lowBk.includes('дозаказ') || lowHd.includes('дозаказ')) resolved = 'additional_order';
+          else if (lowHd.includes('авария') || lowBk.includes('авария') || lowBk.includes('глобальная')) resolved = 'accident';
+        }
+
+        if (resolved === 'connection') {
           category = 'connection';
           reqSkill = 'connection';
-          durationMin = 60;
-        } else if (lowBk.includes('дозаказ') || lowHd.includes('дозаказ')) {
+          durationMin = 70;
+        } else if (resolved === 'additional_order') {
           category = 'additional_order';
           reqSkill = 'connection';
           durationMin = 20;
-        } else if (lowHd.includes('авария') || lowBk.includes('авария') || lowBk.includes('глобальная')) {
+        } else if (resolved === 'accident') {
           category = 'accident';
           reqSkill = 'accident';
-          durationMin = 120;
+          durationMin = 80;
         }
 
         // Парсинг временных окон (никогда не возвращает NaN)
@@ -1857,7 +1920,19 @@
           brigadeNames.push(r.brigade);
         }
       }
-      return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint, brigadeNames: brigadeNames };
+      // Пригородный пул как в build_engineers_for_dataset бэкенда: есть заявки в Кашире / Ступино / Домодедово
+      const hasSuburbs = requests.some(r => SUBURB_DISTRICTS.includes(r.district));
+      return { requests: requests, depotCoords: depotCoords, depotAddress: depotAddress, districtHint: districtHint, brigadeNames: brigadeNames, hasSuburbs: hasSuburbs };
+    }
+
+    // Параметры пула синхронизированы с бэкендом (create_engineers_pool / TRANSPORT_CONFIG)
+    const SUBURB_DISTRICTS = ['Кашира', 'Ступино', 'Домодедово'];
+    const DEFAULT_POOL_SIZE = 11;
+    const TRANSPORT_CAPACITY = { car: 30, transit: 18, bicycle: 14, foot: 10 };
+
+    function requestDemand(req) {
+      // Как equipment_demand в бэкенде: авария или гигабитное подключение — 2 ед., остальное — 1
+      return (req.category === 'accident' || req.gigabit === 'Да') ? 2 : 1;
     }
 
     // МОДЕЛИРОВАНИЕ ИНЖЕНЕРОВ
@@ -1865,31 +1940,32 @@
       transportMode = transportMode || globalTransportMode;
       const list = [];
       for (let i = 0; i < count; i++) {
-        let skills = ['local_repair', 'connection'];
+        let skills = ['local_repair', 'connection', 'extra_order'];
         let role = 'Универсал';
         let transport = transportMode;
 
         if (transportMode === 'mixed') {
-          if (i < 6) {
-            transport = 'car';
-            role = '🚗 Авто-инженер';
-          } else if (i < 10) {
-            transport = 'bicycle';
-            role = '🚲 Вело-инженер (СИМ)';
+          // Состав как в create_engineers_pool бэкенда
+          if (isRemote) {
+            transport = i < 8 ? 'car' : (i < 10 ? 'transit' : 'bicycle');
           } else {
-            transport = 'foot';
-            role = '🚶 Пеший специалист';
+            transport = i < 5 ? 'car' : (i < 8 ? 'transit' : (i < 10 ? 'bicycle' : 'foot'));
           }
+          role = {
+            car: '🚗 Авто-инженер',
+            transit: '🚌 Инженер на общественном транспорте',
+            bicycle: '🚲 Вело-инженер (СИМ)',
+            foot: '🚶 Пеший специалист'
+          }[transport];
         } else {
           const cfg = getTransportConfig(transport);
           role = `${cfg.icon} ${cfg.name}`;
         }
 
-        if (i % 4 === 0) {
+        // Допуск к авариям на ТКД — первые 5 бригад (в смешанном пуле это авто-бригады, как на бэкенде)
+        if (i < 5) {
           skills.push('accident');
           role += ' (Аварийщик)';
-        } else if (i % 4 === 1 && transportMode !== 'mixed') {
-          role += ' (Подключения)';
         }
 
         // ВСЕ 100% инженеров стартуют СТРОГО из офиса/склада района (депо)
@@ -1901,6 +1977,7 @@
           role: role,
           transport: transport,
           skills: skills,
+          capacity: TRANSPORT_CAPACITY[transport] || TRANSPORT_CAPACITY.car,
           startCoords: startCoords,
           shiftStart: 480,
           shiftEnd: 1320,
@@ -1913,21 +1990,33 @@
     }
 
     // ВСТАВКА ЗАЯВКИ В МАРШРУТ
-    function tryInsert(eng, req, allowWait) {
+    // Как try_insert_request бэкенда: перебираются все позиции, выбирается самая короткая по км.
+    // appendOnly = true — только в конец маршрута (Baseline FIFO, как run_baseline_fifo бэкенда).
+    function engineerHasSkill(eng, req) {
       const engSkills = eng.skills || [];
       const reqSkill = req.reqSkill || req.category || '';
-      const hasSkill = engSkills.includes(reqSkill) ||
+      return engSkills.includes(reqSkill) ||
         (reqSkill === 'accident' && (engSkills.includes('emergency') || engSkills.includes('accident'))) ||
         (reqSkill === 'emergency' && (engSkills.includes('emergency') || engSkills.includes('accident'))) ||
         (reqSkill === 'local_repair' && (engSkills.includes('repair') || engSkills.includes('local_repair'))) ||
         (reqSkill === 'repair' && (engSkills.includes('repair') || engSkills.includes('local_repair'))) ||
         (reqSkill === 'connection' && engSkills.includes('connection')) ||
         (reqSkill === 'extra_order' && engSkills.includes('extra_order'));
-      if (!hasSkill) return null;
+    }
+
+    function tryInsert(eng, req, allowWait, appendOnly) {
+      if (!engineerHasSkill(eng, req)) return null;
       if (req.reqTransport && eng.transport !== req.reqTransport) return null;
 
+      // Вместимость оборудования (equipment_capacity бэкенда)
+      if (eng.capacity) {
+        const load = eng.tasks.reduce((s, t) => s + requestDemand(t), 0);
+        if (load + requestDemand(req) > eng.capacity) return null;
+      }
+
       const n = eng.tasks.length;
-      for (let pos = 0; pos <= n; pos++) {
+      let best = null;
+      for (let pos = appendOnly ? n : 0; pos <= n; pos++) {
         let curTime = eng.shiftStart;
         let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
         let ok = true;
@@ -1972,48 +2061,60 @@
           if (curTime + tBack > eng.shiftEnd) {
             continue;
           }
-          return { pos: pos, kmAcc: kmAcc + dBack, driveMinAcc: driveMinAcc + tBack, schedule: schedule };
+          if (!best || kmAcc + dBack < best.kmAcc) {
+            best = { pos: pos, kmAcc: kmAcc + dBack, driveMinAcc: driveMinAcc + tBack, schedule: schedule };
+          }
         }
       }
-      return null;
+      return best;
     }
 
     // ИЕРАРХИЧЕСКАЯ 4-ПРОХОДНАЯ ОПТИМИЗАЦИЯ
+        // Фактическая диагностика причины (как explain_dropped бэкенда): проверяем реальные ограничения
         function getUnassignedReason(req, engineers, isRemote) {
-      if (req.district === 'Кашира' || req.district === 'Ступино') {
-        return 'Территориальная удалённость района (' + req.district + ', >95 км от депо). Время в пути туда-обратно и выполнение работ превышают допустимый лимит смены бригад.';
+      const skilled = engineers.filter(e => engineerHasSkill(e, req));
+      if (!skilled.length) {
+        return 'Нет инженеров с квалификацией «' + (req.reqSkill || req.category) + '» в пуле бригад района.';
       }
-      if (req.gigabit === 'Да' || req.reqSkill === 'gigabit') {
-        return 'Требуется квалификация «Гигабитное подключение». Все сертифицированные инженеры этого профиля полностью загружены до конца дня.';
+      if (req.winEnd - req.winStart < req.durationMin) {
+        return 'Временно́е окно клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + ') короче норматива выполнения работ (' + req.durationMin + ' мин).';
       }
-      if (req.winStart >= 1080 || (req.winStart >= 960 && req.winEnd <= 1200)) {
-        return 'Конфликт вечернего окна клиента (' + formatTime(req.winStart) + '–' + formatTime(req.winEnd) + '). Все подходящие бригады в этом секторе уже заняты заказами.';
+      // Успел бы свободный инженер с пустым маршрутом?
+      const soloFeasible = skilled.some(e => tryInsert({ ...e, tasks: [] }, req, true) !== null);
+      if (!soloFeasible) {
+        const e0 = skilled[0];
+        const depot = e0.startCoords || [55.7001, 37.7690];
+        const legKm = roadDistanceKm(depot, req.coords, e0.transport);
+        const legMin = travelTimeMin(depot, req.coords, e0.transport, e0.shiftStart);
+        return 'Недостижимо даже для свободного инженера: дорога от депо ' + legMin + ' мин (' + legKm.toFixed(1) + ' км), ' +
+          'работы (' + req.durationMin + ' мин) с возвратом в депо не укладываются в окно ' +
+          formatTime(req.winStart) + '–' + formatTime(req.winEnd) + ' и смену до ' + formatTime(e0.shiftEnd) + '.';
       }
-      if (req.category === 'accident') {
-        return 'Исчерпана пропускная способность авто-аварийщиков. Длительность работ (' + req.durationMin + ' мин) и время доезда превышают доступный резерв смены.';
-      }
-      if (req.category === 'additional_order' || req.category === 'repair') {
-        return 'Дефицит свободного времени в графике. Слоты бригад приоритетно заняты авариями и первичными подключениями.';
-      }
-      return 'Превышение лимита рабочей смены бригад. У подходящих инженеров нет достаточного резерва времени на доезд и монтаж.';
+      return 'График подходящих бригад полностью заполнен: свободный инженер успел бы, но все допущенные мастера заняты в этом окне.';
     }
 
     function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames) {
+      activeTravelModel = null; // встроенный движок считает по своей модели (пробки, накладные минуты)
       transportMode = transportMode || globalTransportMode;
       calcTimeMin = calcTimeMin || parseMinutesStr(globalRoutingTime) || 540;
-      const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(12, brigadeNames.length) : 12;
+      const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(DEFAULT_POOL_SIZE, brigadeNames.length) : DEFAULT_POOL_SIZE;
       const engineers = createEngineers(count, depotCoords, isRemote, transportMode, brigadeNames);
       const assignedReqs = new Set();
 
-      function runPass(filterFn, passName) {
+      function runPass(filterFn, passName, sortEdf) {
         const pool = requests.filter(r => !assignedReqs.has(r.id) && filterFn(r));
-        // Сортировка по началу окна, для подключений — приоритет гигабитным
-        pool.sort((a, b) => {
-          if (a.winStart !== b.winStart) return a.winStart - b.winStart;
-          if (a.gigabit && !b.gigabit) return -1;
-          if (!a.gigabit && b.gigabit) return 1;
-          return 0;
-        });
+        // Как в run_4pass_optimization бэкенда: аварии — в порядке файла, остальные проходы —
+        // Earliest Deadline First (конец окна, затем начало), для подключений приоритет гигабитным
+        if (sortEdf) {
+          pool.sort((a, b) => {
+            if (a.winEnd !== b.winEnd) return a.winEnd - b.winEnd;
+            if (a.winStart !== b.winStart) return a.winStart - b.winStart;
+            const ga = a.gigabit === 'Да', gb = b.gigabit === 'Да';
+            if (ga && !gb) return -1;
+            if (!ga && gb) return 1;
+            return 0;
+          });
+        }
 
         for (const req of pool) {
           let bestCost = Infinity;
@@ -2050,10 +2151,10 @@
         }
       }
 
-      runPass(r => r.category === 'accident', 'Аварии');
-      runPass(r => r.category === 'connection', 'Подключения');
-      runPass(r => r.category === 'repair', 'Ремонты');
-      runPass(r => r.category === 'additional_order', 'Дозаказы');
+      runPass(r => r.category === 'accident', 'Аварии', false);
+      runPass(r => r.category === 'connection', 'Подключения', true);
+      runPass(r => r.category === 'repair', 'Ремонты', true);
+      runPass(r => r.category === 'additional_order', 'Дозаказы', true);
 
       // Сбор всех нераспределенных заявок с конкретными обоснованиями
       const unassigned = [];
@@ -2082,14 +2183,17 @@
     }
 
     // BASELINE FIFO
-    function solveBaseline(requests, depotCoords, isRemote, brigadeNames) {
-      const count = (brigadeNames && brigadeNames.length > 0) ? brigadeNames.length : 12;
-      const engineers = createEngineers(count, depotCoords, isRemote, 'car', brigadeNames);
+    // Как run_baseline_fifo бэкенда: тот же пул, что у оптимизатора; заявки строго по порядку файла,
+    // каждая — в конец маршрута первого подходящего инженера
+    function solveBaseline(requests, depotCoords, isRemote, brigadeNames, transportMode) {
+      activeTravelModel = null;
+      const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(DEFAULT_POOL_SIZE, brigadeNames.length) : DEFAULT_POOL_SIZE;
+      const engineers = createEngineers(count, depotCoords, isRemote, transportMode || globalTransportMode, brigadeNames);
       let assigned = 0;
 
       for (const req of requests) {
         for (const eng of engineers) {
-          const plan = tryInsert(eng, req, false);
+          const plan = tryInsert(eng, req, false, true);
           if (plan) {
             eng.tasks = plan.schedule.map(s => s.task);
             eng.schedule = plan.schedule;
@@ -2459,7 +2563,9 @@
               poly.bindPopup(
                 '<b>Маршрут: ' + eng.name + '</b><br>' +
                 'Транспорт: <b>' + cfg.icon + ' ' + cfg.name + '</b><br>' +
-                '🛣️ По дорогам (OSRM): <b>' + res.roadKm.toFixed(1) + ' км</b> | Время: <b>' + res.roadMin + ' мин</b>'
+                (transport === 'foot' ? '🚶 По пешеходному графу (тротуары, переходы, дворы)' :
+                  transport === 'bicycle' ? '🚲 По велосипедному графу (велодорожки, дворы)' : '🛣️ По дорогам') +
+                ' (OSRM): <b>' + res.roadKm.toFixed(1) + ' км</b> | Время: <b>' + res.roadMin + ' мин</b>'
               );
             }
           } catch (err) {
@@ -2638,7 +2744,8 @@
       else if (s.task.category === 'connection') catTitle = 'Новое подключение абонента';
       else if (s.task.category === 'additional_order') catTitle = 'Дозаказ оборудования';
 
-      const remShiftHours = Math.max(0, (eng.shiftEnd - s.endWork) / 60).toFixed(1);
+      const shiftEnd = eng.shiftEnd || 1320;
+      const remShiftHours = Math.max(0, (shiftEnd - s.endWork) / 60).toFixed(1);
 
       const text = 'Заявка №' + s.task.id + ' (' + s.task.typeHd + ')\n' +
         'Категория: ' + catTitle + '\n' +
@@ -2648,7 +2755,7 @@
         '2. Географическая оптимизация: Ближайший доступный мастер в кластере ' + s.task.district + '. Переезд: ' + s.legKm.toFixed(1) + ' км (дорога: ' + s.legDrive + ' мин от предыдущей точки).\n' +
         '3. Временное окно клиента: ' + formatTime(s.task.winStart) + ' - ' + formatTime(s.task.winEnd) + '. Расчетное прибытие: ' + formatTime(s.arrTime) + ' (гарантированное попадание в слот).\n' +
         '4. Технический регламент: Работы с ' + formatTime(s.startWork) + ' до ' + formatTime(s.endWork) + ' (' + s.task.durationMin + ' мин по утвержденному нормативу ВымпелКом).\n' +
-        '5. Баланс смены: Без превышения лимита смены 21:00 (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
+        '5. Баланс смены: Без превышения лимита смены ' + formatTime(shiftEnd) + ' (запас до конца рабочего дня: ' + remShiftHours + ' ч).\n' +
         '6. Экономический эффект: Решение минимизирует холостой пробег бригады и исключает вывод дополнительного сотрудника.';
 
       document.getElementById('modalTitle').innerText = '💡 Обоснование решения: Заявка №' + s.task.id;
@@ -2706,7 +2813,7 @@
           else if (s.task.category === 'connection') catName = 'Подключение';
           else if (s.task.category === 'additional_order') catName = 'Дозаказ';
 
-          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до 21:00.';
+          const xai = 'Квалификация ' + s.task.reqSkill + '; плечо ' + s.legKm.toFixed(1) + ' км; прибытие ' + formatTime(s.arrTime) + ' в окно ' + formatTime(s.task.winStart) + '-' + formatTime(s.task.winEnd) + '; смена до ' + formatTime(eng.shiftEnd || 1320) + '.';
 
           const tCfg = getTransportConfig(eng.transport || globalTransportMode);
           rows.push([
@@ -2923,7 +3030,7 @@
         district: district,
         address: address,
         winStart: accMin,
-        winEnd: Math.min(1260, accMin + 120),
+        winEnd: Math.min(1320, accMin + 120),
         coords: coords
       };
 
@@ -2944,29 +3051,80 @@
         }
       }
 
-      // 2. Если свободных окон нет, вытесняем наименее приоритетную задачу (локальный ремонт / дозаказ)
-      if (!assigned && targetEng) {
-        let displaced = null;
-        for (let i = targetEng.tasks.length - 1; i >= 0; i--) {
-          const cat = targetEng.tasks[i].category || targetEng.tasks[i].reqSkill;
-          if (cat === 'repair' || cat === 'local_repair' || cat === 'additional_order' || cat === 'extra_order') {
-            displaced = targetEng.tasks.splice(i, 1)[0];
-            break;
+      // 2. Если свободных окон нет, вытесняем наименее приоритетные задачи (дозаказы, затем ремонты;
+      //    с конца дня) по одной, пока авария не встанет в график без нарушения окон и смены
+      let displacedAll = [];
+      if (!assigned) {
+        const lowPriority = t => {
+          const cat = t.category || t.reqSkill;
+          if (cat === 'additional_order' || cat === 'extra_order') return 2;
+          if (cat === 'repair' || cat === 'local_repair') return 1;
+          return 0;
+        };
+        let bestOption = null;
+        for (const eng of candidateEngs) {
+          const kept = eng.tasks.slice();
+          const displaced = [];
+          let plan = null;
+          while (!(plan = tryInsert({ ...eng, tasks: kept }, newAcc, true))) {
+            let victim = -1;
+            for (let i = kept.length - 1; i >= 0; i--) {
+              if (lowPriority(kept[i]) > 0 && (victim < 0 || lowPriority(kept[i]) > lowPriority(kept[victim]))) victim = i;
+            }
+            if (victim < 0) break;
+            displaced.push(kept.splice(victim, 1)[0]);
+          }
+          if (plan && (!bestOption || displaced.length < bestOption.displaced.length)) {
+            bestOption = { eng: eng, plan: plan, displaced: displaced };
           }
         }
-        targetEng.tasks.unshift(newAcc);
-        recomputeEngineer(targetEng);
-        if (displaced) {
-          session.solution.unassigned.push({
-            req: displaced,
-            reason: 'Вытеснена срочной аварией на ТКД №' + accId + ' у бригады ' + targetEng.name + ' в ' + timeVal
+
+        if (bestOption) {
+          targetEng = bestOption.eng;
+          targetEng.tasks = bestOption.plan.schedule.map(s => s.task);
+          recomputeEngineer(targetEng);
+          assigned = true;
+          displacedAll = bestOption.displaced;
+
+          // Вытесненные заявки пробуем отдать другим бригадам, иначе — в список неназначенных
+          displacedAll.forEach(req => {
+            let placed = false;
+            for (const other of session.solution.engineers) {
+              if (other.id === targetEng.id) continue;
+              const p = tryInsert(other, req, true);
+              if (p) {
+                other.tasks = p.schedule.map(s => s.task);
+                recomputeEngineer(other);
+                placed = true;
+                break;
+              }
+            }
+            if (!placed) {
+              session.solution.unassigned.push({
+                req: req,
+                reason: 'Вытеснена срочной аварией на ТКД №' + accId + ' у бригады ' + targetEng.name + ' в ' + timeVal + '; у других бригад нет свободного окна'
+              });
+            }
           });
         }
       }
 
+      if (!assigned) {
+        session.solution.unassigned.push({
+          req: newAcc,
+          reason: 'Ни один аварийщик не успевает выполнить работы (' + newAcc.durationMin + ' мин) в окне ' +
+            formatTime(newAcc.winStart) + '–' + formatTime(newAcc.winEnd) + ' с возвратом в депо до конца смены, даже с вытеснением ремонтов и дозаказов'
+        });
+      }
+
       recomputeSolutionStats(session.solution);
       renderActiveSession();
-      alert('🚨 Срочная авария на ТКД №' + accId + ' зафиксирована в ' + timeVal + '!\nНазначена ведущему инженеру ' + targetEng.name + ' (' + targetEng.role + ') с высшим приоритетом.');
+      if (assigned) {
+        alert('🚨 Срочная авария на ТКД №' + accId + ' зафиксирована в ' + timeVal + '!\nНазначена инженеру ' + targetEng.name + ' (' + targetEng.role + ').' +
+          (displacedAll.length ? '\nВытеснено несрочных задач: ' + displacedAll.length + '.' : ''));
+      } else {
+        alert('🚨 Срочная авария на ТКД №' + accId + ' в ' + timeVal + ' не может быть назначена без нарушения окон и смены — добавлена в неназначенные.');
+      }
     }
 
     // СБРОС К ИСХОДНОМУ ПЛАНУ
@@ -3166,7 +3324,7 @@
 
         if (session && session.csvInput) {
           const parsed = parseCsv(session.csvInput);
-          const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+          const isRemote = parsed.hasSuburbs;
           const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
 
           syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
@@ -3208,10 +3366,10 @@
           renderActiveSession();
         } else if (session && session.csvInput) {
           const parsed = parseCsv(session.csvInput);
-          const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+          const isRemote = parsed.hasSuburbs;
           const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
           const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, session.transportMode || globalTransportMode, timeMin, parsed.brigadeNames);
-          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
+          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, session.transportMode || globalTransportMode);
           const res = {
             solution: fastSol,
             baseline: fastBase,
@@ -3238,7 +3396,7 @@
         return null;
       }
 
-      const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+      const isRemote = parsed.hasSuburbs;
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
       // ЭТАП 1: Мгновенный быстрый расчёт по 4-Pass (за 20-30 мс)
@@ -3389,6 +3547,8 @@
 
     function renderActiveSession() {
       const session = getActiveSession();
+      // Решение с бэкенда несёт его модель перемещений — дальше все пересчёты идут по ней
+      activeTravelModel = (session && session.solution && session.solution.travelModel) || null;
       const emptyState = document.getElementById('emptyState');
       const sidebar = document.getElementById('sidebar');
       const mapContainer = document.getElementById('mapContainer');
@@ -3638,7 +3798,7 @@
       const parsed = parseCsv(session.csvInput);
       if (!parsed || !parsed.requests.length) return;
 
-      const isRemote = parsed.districtHint.includes('Кашира') || parsed.districtHint.includes('Ступино');
+      const isRemote = parsed.hasSuburbs;
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
       // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана
