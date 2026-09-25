@@ -16,8 +16,8 @@ VRPTW-S-C-M: Интеллектуальная система мультимод�
    - Устранение любых временных наложений и неконсистентностей.
 3. Двойной движок глобальной оптимизации:
    - Иерархический 4-Pass Insertion Heuristic (гарантированное допустимое решение);
-   - Многомашинный Google OR-Tools Routing (pywrapcp.RoutingModel) с Guided Local Search;
-   - Полноценная CP-SAT модель (ortools.sat.python.cp_model).
+   - Многомашинный Google OR-Tools Routing (pywrapcp.RoutingModel) с Guided Local Search
+     и теплым стартом из 4-Pass решения.
 4. Независимый строгий валидатор решения (validate_solution).
 """
 
@@ -35,15 +35,12 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# Попытка импорта Google OR-Tools (RoutingModel & CP-SAT)
+# Попытка импорта Google OR-Tools (RoutingModel)
 try:
     from ortools.constraint_solver import routing_enums_pb2, pywrapcp
-    from ortools.sat.python import cp_model
     HAS_ORTOOLS = True
-    HAS_CPSAT = True
 except ImportError:
     HAS_ORTOOLS = False
-    HAS_CPSAT = False
 
 
 # ======================================================================================
@@ -251,34 +248,34 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(min(1.0, math.sqrt(a)))
 
 
+def osrm_cache_key(lat1: float, lon1: float, lat2: float, lon2: float, transport: str) -> str:
+    """Ключ пары точек в .osrm_cache.json (общий для решателя и build_osrm_cache.py)."""
+    return f"{lat1:.4f},{lon1:.4f}_{lat2:.4f},{lon2:.4f}_{transport}"
+
+
 def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car") -> float:
     """
     Расчет реального расстояния с учетом типа передвижения:
-    - Пешеходы: идут по тротуарам, пешеходным переходам и сквозным аркам домов (коэффициент 1.10);
-    - Велосипедисты: используют велодорожки, тротуары и дворовые зоны (коэффициент 1.15);
+    - Пешеходы: пешеходный граф OSM (тротуары, переходы, дворы и сквозные арки), иначе коэффициент 1.10;
+    - Велосипедисты: велосипедный граф OSM (велодорожки, тротуары, дворовые зоны), иначе коэффициент 1.15;
     - Общественный транспорт: метро + НГПТ (коэффициент 1.25);
-    - Автомобили: следуют строгой автодорожной сети с разворотами и развязками (коэффициент 1.35).
+    - Автомобили: строгая автодорожная сеть с разворотами и развязками (коэффициент 1.35).
+    Точные расстояния по графам лежат в .osrm_cache.json (см. build_osrm_cache.py).
     """
     if (lat1, lon1) == (lat2, lon2):
         return 0.0
 
-    key = f"{lat1:.4f},{lon1:.4f}_{lat2:.4f},{lon2:.4f}_{transport}"
+    key = osrm_cache_key(lat1, lon1, lat2, lon2, transport)
     if key in _OSRM_CACHE:
         return _OSRM_CACHE[key]
 
-    # Если для автомобильной сети есть точное OSRM-расстояние:
-    car_key = f"{lat1:.4f},{lon1:.4f}_{lat2:.4f},{lon2:.4f}_car"
-    if car_key in _OSRM_CACHE:
-        d_car = _OSRM_CACHE[car_key]
-        if transport == "foot":
-            # Пешеходные тротуары и сквозные проходы срезают автомобильные объезды на ~18-20%
-            return round(d_car * (1.10 / 1.35), 2)
-        elif transport == "bicycle":
-            # Велосипеды и СИМ срезают дорожные развязки через дворы и тротуары на ~15%
-            return round(d_car * (1.15 / 1.35), 2)
-        elif transport == "transit":
-            return round(d_car * (1.25 / 1.35), 2)
-        return d_car
+    # Общественный транспорт идет по улично-дорожной сети — масштабируем автомобильное OSRM-расстояние.
+    # Пешеходов и велосипедистов из автомобильного графа НЕ выводим: он навязывает объезды
+    # (односторонние улицы, развязки), которые пешеход срезает через переходы и дворы.
+    if transport == "transit":
+        car_key = osrm_cache_key(lat1, lon1, lat2, lon2, "car")
+        if car_key in _OSRM_CACHE:
+            return round(_OSRM_CACHE[car_key] * (1.25 / 1.35), 2)
 
     # Геодезическое расстояние с коэффициентом извилистости
     k_wind = WINDING_FACTORS.get(transport, 1.25)
@@ -330,7 +327,10 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
     depot_address = ""
     district_hint = ""
 
-    for enc in ["cp1251", "utf-8", "utf-8-sig"]:
+    for enc in ["utf-8-sig", "cp1251"]:
+        # Сбрасываем накопленное при неудачной попытке с другой кодировкой
+        raw_rows = []
+        depot_address = ""
         try:
             with open(csv_path, encoding=enc, newline="") as f:
                 reader = csv.DictReader(f, delimiter=";")
@@ -342,7 +342,8 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
                     if not req_id or not (row.get("Тип заявки BK") or "").strip():
                         continue
                     raw_rows.append(row)
-            break
+            if raw_rows:
+                break
         except UnicodeDecodeError:
             continue
 
@@ -456,6 +457,29 @@ def create_engineers_pool(
             )
         )
     return engineers
+
+
+SUBURB_DISTRICTS = ("Кашира", "Ступино", "Домодедово")
+DEFAULT_POOL_SIZE = 11
+
+
+def build_engineers_for_dataset(
+    requests: List[Request],
+    depot_coords: Tuple[float, float],
+    brigade_names: Optional[List[str]] = None,
+    dataset_name: str = "",
+) -> List[Engineer]:
+    """Единая сборка пула инженеров для консоли (solution.py) и веб-сервиса (app.py)."""
+    has_suburbs = "юго-восток" in dataset_name.lower() or any(
+        r.district in SUBURB_DISTRICTS for r in requests
+    )
+    n_eng = max(DEFAULT_POOL_SIZE, len(brigade_names)) if brigade_names else DEFAULT_POOL_SIZE
+    return create_engineers_pool(
+        n_engineers=n_eng,
+        depot_coords=depot_coords,
+        has_suburbs=has_suburbs,
+        brigade_names=brigade_names or [],
+    )
 
 
 # ======================================================================================
@@ -710,8 +734,25 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
         reason = f"Требуемое оборудование ({r.equipment_demand} ед.) превышает вместимость всех доступных транспортных средств."
     elif r.window_end_min - r.window_start_min < r.work_duration_min:
         reason = f"Временно́е окно клиента ({fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)}) короче норматива выполнения работ ({r.work_duration_min} мин)."
+    elif all(recompute_route_schedule(e, [r]) is None for e in skilled):
+        # Даже свободный инженер с пустым маршрутом не успевает: считаем реальное плечо от депо
+        e0 = min(skilled, key=lambda e: travel_time_min(
+            road_distance_km(e.home_lat, e.home_lon, r.lat, r.lon, e.transport), e.transport))
+        d_km = road_distance_km(e0.home_lat, e0.home_lon, r.lat, r.lon, e0.transport)
+        t_m = travel_time_min(d_km, e0.transport)
+        end_work = max(e0.shift_start_min + t_m, r.window_start_min) + r.work_duration_min
+        if end_work > r.window_end_min:
+            reason = (
+                f"Недостижимо даже для свободного инженера: дорога от депо {t_m} мин ({d_km:.1f} км, {e0.transport}), "
+                f"работы закончились бы в {fmt_time(end_work)} при окне до {fmt_time(r.window_end_min)}."
+            )
+        else:
+            reason = (
+                f"Недостижимо даже для свободного инженера: после работ ({fmt_time(end_work)}) возврат в депо "
+                f"({t_m} мин) выходит за конец смены {fmt_time(e0.shift_end_min)}."
+            )
     else:
-        reason = "График активных бригад полностью заполнен. С учетом дорожного плеча и времени работ невозможно завершить визит до закрытия окна абонента."
+        reason = "График подходящих бригад полностью заполнен: свободный инженер успел бы, но все допущенные мастера заняты в этом окне."
 
     return (
         f"  Заявка №{r.id} [{tname}] ({r.district}, окно {fmt_time(r.window_start_min)}–{fmt_time(r.window_end_min)})\n"
@@ -739,34 +780,47 @@ def solve_vrptw_ortools_routing(
     - Вывод мастера штрафуется фиксированной стоимостью для минимизации штата;
     - Теплый старт из 4-Pass решения.
     """
-    if not HAS_ORTOOLS:
-        fallback = warm_routes if warm_routes is not None else run_4pass_optimization(requests, engineers)[0]
-        return fallback, [], "OR-Tools не установлен"
-
     if warm_routes is None:
         warm_routes, _ = run_4pass_optimization(requests, engineers)
+
+    if not HAS_ORTOOLS:
+        return warm_routes, unserved_requests(requests, warm_routes), "OR-Tools не установлен (использовано допустимое 4-Pass решение)"
 
     N = len(requests)
     M = len(engineers)
     if N == 0 or M == 0:
-        return warm_routes, [], "Пустой набор данных"
+        return warm_routes, unserved_requests(requests, warm_routes), "Пустой набор данных"
 
     depot = (engineers[0].home_lat, engineers[0].home_lon)
     manager = pywrapcp.RoutingIndexManager(N + 1, M, 0)
     routing = pywrapcp.RoutingModel(manager)
 
+    # 0. Предрасчет матриц расстояний (м) и переходов по времени (дорога + работы в точке отправления)
+    #    под каждый вид транспорта — колбэки OR-Tools только читают готовые значения
+    points = [depot] + [(r.lat, r.lon) for r in requests]
+    dist_m: Dict[str, List[List[int]]] = {}
+    transit_min: Dict[str, List[List[int]]] = {}
+    for transport in {e.transport for e in engineers}:
+        d_rows, t_rows = [], []
+        for n1, c1 in enumerate(points):
+            duration = 0 if n1 == 0 else requests[n1 - 1].work_duration_min
+            d_row, t_row = [], []
+            for c2 in points:
+                d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
+                d_row.append(int(round(d * 1000)))
+                t_row.append(travel_time_min(d, transport) + duration)
+            d_rows.append(d_row)
+            t_rows.append(t_row)
+        dist_m[transport] = d_rows
+        transit_min[transport] = t_rows
+
     # 1. Расстояния по видам транспорта
     for k, eng in enumerate(engineers):
-        def make_dist_cb(transport):
+        def make_dist_cb(matrix):
             def cb(from_idx, to_idx):
-                n1 = manager.IndexToNode(from_idx)
-                n2 = manager.IndexToNode(to_idx)
-                c1 = depot if n1 == 0 else (requests[n1 - 1].lat, requests[n1 - 1].lon)
-                c2 = depot if n2 == 0 else (requests[n2 - 1].lat, requests[n2 - 1].lon)
-                d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
-                return int(round(d * 1000))
+                return matrix[manager.IndexToNode(from_idx)][manager.IndexToNode(to_idx)]
             return cb
-        cb_idx = routing.RegisterTransitCallback(make_dist_cb(eng.transport))
+        cb_idx = routing.RegisterTransitCallback(make_dist_cb(dist_m[eng.transport]))
         routing.SetArcCostEvaluatorOfVehicle(cb_idx, k)
         routing.SetFixedCostOfVehicle(100_000, k)
 
@@ -782,18 +836,11 @@ def solve_vrptw_ortools_routing(
     # 3. Время
     time_callbacks = []
     for k, eng in enumerate(engineers):
-        def make_time_cb(transport):
+        def make_time_cb(matrix):
             def cb(from_idx, to_idx):
-                n1 = manager.IndexToNode(from_idx)
-                n2 = manager.IndexToNode(to_idx)
-                c1 = depot if n1 == 0 else (requests[n1 - 1].lat, requests[n1 - 1].lon)
-                c2 = depot if n2 == 0 else (requests[n2 - 1].lat, requests[n2 - 1].lon)
-                d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
-                t_drive = travel_time_min(d, transport)
-                duration = 0 if n1 == 0 else requests[n1 - 1].work_duration_min
-                return t_drive + duration
+                return matrix[manager.IndexToNode(from_idx)][manager.IndexToNode(to_idx)]
             return cb
-        t_cb_idx = routing.RegisterTransitCallback(make_time_cb(eng.transport))
+        t_cb_idx = routing.RegisterTransitCallback(make_time_cb(transit_min[eng.transport]))
         time_callbacks.append(t_cb_idx)
 
     routing.AddDimensionWithVehicleTransits(time_callbacks, 1440, 1440, False, "Time")
@@ -801,34 +848,53 @@ def solve_vrptw_ortools_routing(
 
     for i in range(1, N + 1):
         r = requests[i - 1]
+        index = manager.NodeToIndex(i)
+        routing.AddDisjunction([index], 10_000_000)
+
         latest_arr = r.window_end_min - r.work_duration_min
-        if latest_arr >= r.window_start_min:
-            time_dim.CumulVar(manager.NodeToIndex(i)).SetRange(r.window_start_min, latest_arr)
-        routing.AddDisjunction([manager.NodeToIndex(i)], 10_000_000)
+        allowed = [k for k, e in enumerate(engineers) if r.req_type in e.skills]
+        if latest_arr < r.window_start_min or not allowed:
+            # Окно короче норматива или нет допущенных мастеров — заявка заведомо не выполнима,
+            # исключаем её из модели, чтобы она не попала в маршрут без ограничений
+            routing.ActiveVar(index).SetValue(0)
+            continue
+        time_dim.CumulVar(index).SetRange(r.window_start_min, latest_arr)
 
         # Ограничение по навыкам
-        allowed = [k for k, e in enumerate(engineers) if r.req_type in e.skills]
-        if allowed and len(allowed) < M:
-            routing.VehicleVar(manager.NodeToIndex(i)).SetValues(allowed + [-1])
+        if len(allowed) < M:
+            routing.VehicleVar(index).SetValues(allowed + [-1])
 
     for k, eng in enumerate(engineers):
         time_dim.CumulVar(routing.Start(k)).SetRange(eng.shift_start_min, eng.shift_start_min)
         time_dim.CumulVar(routing.End(k)).SetRange(eng.shift_start_min, eng.shift_end_min)
 
     params = pywrapcp.DefaultRoutingSearchParameters()
-    params.time_limit.seconds = max(1, int(time_limit_sec))
+    params.time_limit.FromMilliseconds(max(1000, int(time_limit_sec * 1000)))
     params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
 
-    sol = routing.SolveWithParameters(params)
+    # Теплый старт: 4-Pass решение передается в OR-Tools как начальное назначение
+    routing.CloseModelWithParameters(params)
+    engine_idx = {e.id: k for k, e in enumerate(engineers)}
+    node_of = {r.id: i + 1 for i, r in enumerate(requests)}
+    initial = [[] for _ in range(M)]
+    for route in warm_routes:
+        k = engine_idx.get(route.engineer.id)
+        if k is not None:
+            initial[k] = [node_of[v.request.id] for v in route.visits if v.request.id in node_of]
+    initial_assignment = routing.ReadAssignmentFromRoutes(initial, True)
 
-    if not sol or routing.status() not in (1, 2):
-        return warm_routes, [], "Допустимое решение (4-Pass Heuristic)"
+    sol = None
+    if initial_assignment is not None:
+        sol = routing.SolveFromAssignmentWithParameters(initial_assignment, params)
+    if sol is None:
+        sol = routing.SolveWithParameters(params)
 
-    # Восстановление маршрутов
+    if sol is None:
+        return warm_routes, unserved_requests(requests, warm_routes), "OR-Tools не нашёл решение за отведённое время (использовано 4-Pass решение)"
+
+    # Восстановление маршрутов: заявка считается обслуженной только после успешного пересчета маршрута
     improved_routes = []
-    served_node_ids = set()
-
     for k in range(M):
         idx = routing.Start(k)
         route_reqs = []
@@ -836,7 +902,6 @@ def solve_vrptw_ortools_routing(
             node = manager.IndexToNode(idx)
             if node != 0:
                 route_reqs.append(requests[node - 1])
-                served_node_ids.add(requests[node - 1].id)
             idx = sol.Value(routing.NextVar(idx))
 
         if route_reqs:
@@ -853,18 +918,26 @@ def solve_vrptw_ortools_routing(
                     )
                 )
 
-    unassigned_list = [r for r in requests if r.id not in served_node_ids]
+    # Лексикографическое сравнение с warm_routes: выполнено заявок -> число инженеров -> пробег
+    if solution_quality_key(improved_routes) > solution_quality_key(warm_routes):
+        return improved_routes, unserved_requests(requests, improved_routes), "Оптимизировано Google OR-Tools (RoutingModel)"
+    return warm_routes, unserved_requests(requests, warm_routes), (
+        f"OR-Tools за {time_limit_sec:g} с не улучшил 4-Pass решение (использовано 4-Pass решение)"
+    )
 
-    # Сравниваем качество с warm_routes: если OR-Tools улучшил или сохранил, берем его
-    old_assigned = sum(len(r.visits) for r in warm_routes)
-    new_assigned = sum(len(r.visits) for r in improved_routes)
-    old_km = sum(r.total_km for r in warm_routes)
-    new_km = sum(r.total_km for r in improved_routes)
 
-    if new_assigned > old_assigned or (new_assigned == old_assigned and new_km < old_km - 0.05):
-        return improved_routes, unassigned_list, "Оптимизировано Google OR-Tools (RoutingModel)"
-    else:
-        return warm_routes, unassigned_list, "Оптимальное решение (4-Pass оптимум подтвержден)"
+def unserved_requests(requests: List[Request], routes: List[Route]) -> List[Request]:
+    """Заявки, которые не попали ни в один маршрут."""
+    served = {v.request.id for r in routes for v in r.visits}
+    return [r for r in requests if r.id not in served]
+
+
+def solution_quality_key(routes: List[Route]) -> Tuple[int, int, float]:
+    """Ключ качества плана: больше заявок, затем меньше инженеров, затем меньше км."""
+    assigned = sum(len(r.visits) for r in routes)
+    staff = sum(1 for r in routes if r.visits)
+    km = round(sum(r.total_km for r in routes), 2)
+    return assigned, -staff, -km
 
 
 def optimize_routes_with_ortools(
@@ -872,25 +945,22 @@ def optimize_routes_with_ortools(
     requests: Optional[List[Request]] = None,
     engineers: Optional[List[Engineer]] = None,
     time_limit_sec: float = 3.0,
-) -> Tuple[List[Route], str]:
+) -> Tuple[List[Route], List[Request], str]:
     """
-    Обертка над оптимизатором для сохранения обратной совместимости.
+    Обертка над оптимизатором. Возвращает (маршруты, невыполненные заявки, статус) —
+    список невыполненных всегда соответствует возвращенным маршрутам.
     """
-    if not HAS_ORTOOLS:
-        return routes, "OR-Tools не установлен (использовано допустимое 4-Pass решение)"
-
     if requests is None:
         requests = [v.request for r in routes for v in r.visits]
     if engineers is None:
         engineers = [r.engineer for r in routes]
 
-    res_routes, _, status_desc = solve_vrptw_ortools_routing(
+    return solve_vrptw_ortools_routing(
         requests=requests,
         engineers=engineers,
         time_limit_sec=time_limit_sec,
         warm_routes=routes,
     )
-    return res_routes, status_desc
 
 
 # ======================================================================================
@@ -901,15 +971,19 @@ def validate_solution(
     routes: List[Route],
     requests: List[Request],
     engineers: List[Engineer],
+    unassigned: Optional[List[Request]] = None,
 ) -> Dict[str, Any]:
     """
     Строгий независимый аудит сформированного расписания:
-    - 100% соблюдение окон клиентов (окончание работ <= window_end_min);
+    - 100% соблюдение окон клиентов (начало работ >= window_start_min, окончание <= window_end_min);
     - Отсутствие наложений во времени между визитами мастеров;
     - Возврат всех бригад в депо строго до конца смены (22:00);
     - Соответствие навыков (Skills);
     - Вместимость оборудования (Capacity);
-    - Уникальность обслуживания каждой заявки.
+    - Уникальность обслуживания каждой заявки;
+    - Полнота учета (если передан unassigned): каждая заявка ровно в одном месте —
+      в маршруте или в списке невыполненных;
+    - Сверка заявленного пробега маршрутов с пересчитанным с нуля.
     """
     served_ids = []
     window_violations = []
@@ -917,6 +991,7 @@ def validate_solution(
     overlap_violations = []
     skill_violations = []
     capacity_violations = []
+    coverage_violations = []
     total_km_calc = 0.0
 
     for r in routes:
@@ -941,6 +1016,12 @@ def validate_solution(
             if v.arrival_min < exp_arr - 1:
                 overlap_violations.append(f"{eng.id}, заявка {req.id}: прибытие {fmt_time(v.arrival_min)} < расчётного {fmt_time(exp_arr)}")
 
+            if v.service_start_min < v.arrival_min:
+                overlap_violations.append(f"{eng.id}, заявка {req.id}: начало работ {fmt_time(v.service_start_min)} раньше прибытия {fmt_time(v.arrival_min)}")
+
+            if v.service_start_min < req.window_start_min:
+                window_violations.append(f"{eng.id}, заявка {req.id}: начало {fmt_time(v.service_start_min)} < окна {fmt_time(req.window_start_min)}")
+
             if v.service_end_min > req.window_end_min:
                 window_violations.append(f"{eng.id}, заявка {req.id}: окончание {fmt_time(v.service_end_min)} > окна {fmt_time(req.window_end_min)}")
 
@@ -962,6 +1043,23 @@ def validate_solution(
             shift_violations.append(f"{eng.id}: возврат в депо в {fmt_time(ret_time)} > смены {fmt_time(eng.shift_end_min)}")
 
     duplicate_ids = [rid for rid in set(served_ids) if served_ids.count(rid) > 1]
+
+    if unassigned is not None:
+        served_set = set(served_ids)
+        unassigned_ids = [r.id for r in unassigned]
+        for rid in unassigned_ids:
+            if rid in served_set:
+                coverage_violations.append(f"заявка {rid}: одновременно в маршруте и в списке невыполненных")
+        known = served_set | set(unassigned_ids)
+        for req in requests:
+            if req.id not in known:
+                coverage_violations.append(f"заявка {req.id}: потеряна (нет ни в маршрутах, ни в невыполненных)")
+
+    # Заявленный пробег (по округленным плечам) должен совпадать с пересчитанным с нуля
+    total_km_reported = sum(r.total_km for r in routes)
+    km_tolerance = 0.01 * (len(served_ids) + len(routes)) + 0.01
+    km_mismatch = abs(total_km_reported - total_km_calc) > km_tolerance
+
     total_violations = (
         len(window_violations)
         + len(shift_violations)
@@ -969,6 +1067,8 @@ def validate_solution(
         + len(skill_violations)
         + len(capacity_violations)
         + len(duplicate_ids)
+        + len(coverage_violations)
+        + int(km_mismatch)
     )
 
     return {
@@ -982,6 +1082,9 @@ def validate_solution(
         "skill_violations": skill_violations,
         "capacity_violations": capacity_violations,
         "duplicate_ids": duplicate_ids,
+        "coverage_violations": coverage_violations,
+        "km_mismatch": km_mismatch,
+        "total_km_reported": round(total_km_reported, 2),
         "total_km_audit": round(total_km_calc, 2),
     }
 
@@ -993,22 +1096,13 @@ def evaluate_dataset(csv_path: str):
     print("=" * 95)
 
     requests, depot_coords, depot_addr, brigade_names = load_dataset(csv_path)
-    has_suburbs = "юго-восток" in base_name.lower() or any(
-        r.district in ("Кашира", "Ступино", "Домодедово") for r in requests
-    )
-    n_eng = max(11, len(brigade_names)) if brigade_names else 11
-    engineers = create_engineers_pool(
-        n_engineers=n_eng,
-        depot_coords=depot_coords,
-        has_suburbs=has_suburbs,
-        brigade_names=brigade_names or [],
-    )
+    engineers = build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=base_name)
 
     # 1. 4-Pass оптимизация
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
 
     # 2. Оптимизация через Google OR-Tools
-    opt_routes, ortools_status_str = optimize_routes_with_ortools(
+    opt_routes, opt_dropped, ortools_status_str = optimize_routes_with_ortools(
         opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
     )
 
@@ -1016,7 +1110,8 @@ def evaluate_dataset(csv_path: str):
     base_routes, base_dropped = run_baseline_fifo(requests, engineers)
 
     # Валидация
-    val = validate_solution(opt_routes, requests, engineers)
+    val = validate_solution(opt_routes, requests, engineers, unassigned=opt_dropped)
+    audit_line = "✅ 100% ВАЛИДНО (0 нарушений)" if val["is_valid"] else f"❌ Нарушений: {val['total_violations']}"
 
     opt_assigned_count = sum(len(r.visits) for r in opt_routes)
     base_assigned_count = sum(len(r.visits) for r in base_routes)
@@ -1029,7 +1124,7 @@ def evaluate_dataset(csv_path: str):
 
     print(f"Офис/склад района: {depot_addr or 'Автоопределение по району'}")
     print(f"Статус оптимизатора: {ortools_status_str}")
-    print(f"Результат аудита (Валидатор): {'✅ 100% ВАЛИДНО (0 нарушений)' if val['is_valid'] else f'❌ Нарушений: {val['total_violations']}'}")
+    print(f"Результат аудита (Валидатор): {audit_line}")
     print(f"Всего заявок: {len(requests)}")
     print(f"  • Аварии:      {sum(1 for r in requests if r.req_type in ('emergency', 'accident'))}")
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")

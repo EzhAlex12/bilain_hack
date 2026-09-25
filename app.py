@@ -85,19 +85,18 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
     return requests, depot_coords, depot_address, brigade_names
 
 
-def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, n_engineers: int = 12, brigade_names: list[str] = None):
-    has_suburbs = False  # Все инженеры стартуют строго из офиса
-    n = max(n_engineers, len(brigade_names)) if brigade_names else n_engineers
-    engineers = solver.create_engineers_pool(n_engineers=n, depot_coords=depot_coords, has_suburbs=has_suburbs, brigade_names=brigade_names)
+def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = ""):
+    # Единый пул инженеров (тот же, что в консольном solution.py); все стартуют строго из офиса
+    engineers = solver.build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=dataset_name)
 
     # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
     opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
 
-    # 2. Оптимизация через Google OR-Tools CP-SAT (глобальное математическое программирование)
+    # 2. Оптимизация через Google OR-Tools RoutingModel (теплый старт из 4-Pass)
     ortools_status = '4-Pass Feasible (OR-Tools не установлен)'
     if solver.HAS_ORTOOLS:
-        opt_routes, ortools_status = solver.optimize_routes_with_ortools(
-            opt_routes, requests=requests, engineers=engineers, time_limit_sec=2.5
+        opt_routes, opt_dropped, ortools_status = solver.optimize_routes_with_ortools(
+            opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
         )
 
     # 3. Baseline FIFO
@@ -227,6 +226,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "transport": eng.transport,
             "color": color,
             "skills": list(eng.skills),
+            "capacity": eng.equipment_capacity,
             "shiftStart": eng.shift_start_min,
             "shiftEnd": eng.shift_end_min,
             "startCoords": [eng.home_lat, eng.home_lon],
@@ -241,7 +241,8 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
 
     frontend_unassigned = []
     for req in opt_dropped:
-        expl = solver.explain_dropped(req, [r.engineer for r in opt_routes])
+        # Причина считается по всему пулу района (как в serialized_dropped), а не только по активным бригадам
+        expl = solver.explain_dropped(req, engineers)
         reason = expl.split("• Причина: ")[-1].strip() if "• Причина: " in expl else expl
         frontend_unassigned.append({
             "req": {
@@ -249,7 +250,14 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
                 "category": "accident" if req.req_type == "emergency" else (
                     "additional_order" if req.req_type == "extra_order" else req.req_type
                 ),
-                "typeHd": "Авария на ТКД" if req.req_type == "emergency" else ("Подключение" if req.req_type == "connection" else "Ремонт"),
+                "reqSkill": "accident" if req.req_type in ("emergency", "accident") else (
+                    "local_repair" if req.req_type in ("repair", "local_repair") else req.req_type
+                ),
+                "typeHd": "Авария на ТКД" if req.req_type == "emergency" else (
+                    "Подключение" if req.req_type == "connection" else (
+                        "Дозаказ оборудования" if req.req_type == "extra_order" else "Ремонт"
+                    )
+                ),
                 "district": req.district,
                 "address": req.address,
                 "gigabit": "Да" if req.is_gigabit else "Нет",
@@ -261,12 +269,25 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "reason": reason
         })
 
+    # Модель перемещений решателя: фронтенд пересчитывает серверный план (инциденты, ручное
+    # переназначение) по тем же расстояниям и скоростям, что и vrptw_4pass_solver.py
+    points = [list(depot_coords)] + [[r.lat, r.lon] for r in requests]
+    travel_model = {
+        "points": points,
+        "speed": {t: solver.AVG_SPEED_KMH[t] for t in {e.transport for e in engineers}},
+        "dist": {
+            t: [[solver.road_distance_km(p1[0], p1[1], p2[0], p2[1], t) for p2 in points] for p1 in points]
+            for t in {e.transport for e in engineers}
+        },
+    }
+
     frontend_solution = {
         "engineers": frontend_engineers,
         "unassigned": frontend_unassigned,
         "totalKm": opt_km,
         "totalDrive": sum(r.total_travel_min for r in opt_routes),
-        "assignedCount": opt_assigned
+        "assignedCount": opt_assigned,
+        "travelModel": travel_model
     }
 
     frontend_baseline = {
@@ -313,6 +334,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+    def send_json_error(self, code: int, message: str):
+        # send_error() кладет текст в строку статуса HTTP (latin-1) и падает на кириллице —
+        # поэтому сообщение отдается в JSON-теле
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": message}, ensure_ascii=False).encode("utf-8"))
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_cors_headers()
@@ -349,24 +379,25 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             region = query.get("region", ["vostok"])[0].lower()
 
+            # Юго-восток проверяется первым: "yugovostok"/"юго-восток" содержат подстроку "vostok"/"восток"
             target_file = None
-            if "vostok" in region or "восток" in region:
-                target_file = "Восток Синтетические данные.csv"
+            if "yugovostok" in region or "юго-восток" in region:
+                target_file = "Юго-восток Синтетические данные.csv"
             elif "yugocentr" in region or "югоцентр" in region or "yug" in region:
                 target_file = "Югоцентр Синтетические данные.csv"
-            elif "yugovostok" in region or "юго-восток" in region:
-                target_file = "Юго-восток Синтетические данные.csv"
+            elif "vostok" in region or "восток" in region:
+                target_file = "Восток Синтетические данные.csv"
 
             if not target_file:
                 target_file = "Восток Синтетические данные.csv"
 
             csv_path = os.path.join(DATA_DIR, target_file)
             if not os.path.exists(csv_path):
-                self.send_error(404, f"Файл {target_file} не найден на диске")
+                self.send_json_error(404, f"Файл {target_file} не найден на диске")
                 return
 
             requests, depot_coords, depot_addr, brigade_names = solver.load_dataset(csv_path)
-            res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names)
+            res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names, dataset_name=target_file)
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -401,13 +432,13 @@ class Handler(BaseHTTPRequestHandler):
                     pass
 
             if not csv_text:
-                self.send_error(400, "Не удалось распознать кодировку файла (требуется UTF-8 или CP1251)")
+                self.send_json_error(400, "Не удалось распознать кодировку файла (требуется UTF-8 или CP1251)")
                 return
 
             try:
                 requests, depot_coords, depot_addr, brigade_names = parse_csv_content(csv_text)
                 if not requests:
-                    self.send_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
+                    self.send_json_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
                     return
                 res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names)
                 self.send_response(200)

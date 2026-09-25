@@ -17,7 +17,7 @@ import sys
 from vrptw_4pass_solver import (
     HAS_ORTOOLS,
     load_dataset,
-    create_engineers_pool,
+    build_engineers_for_dataset,
     run_4pass_optimization,
     optimize_routes_with_ortools,
     run_baseline_fifo,
@@ -37,22 +37,14 @@ def evaluate_dataset(csv_path: str) -> None:
 
     requests, depot_coords, depot_addr, brigade_names = load_dataset(csv_path)
 
-    has_suburbs = "юго-восток" in base_name.lower() or any(
-        r.district in ("Кашира", "Ступино", "Домодедово") for r in requests
-    )
-    n_eng = max(11, len(brigade_names)) if brigade_names else 11
-    engineers = create_engineers_pool(
-        n_engineers=n_eng,
-        depot_coords=depot_coords,
-        has_suburbs=has_suburbs,
-        brigade_names=brigade_names or [],
-    )
+    # Единый пул инженеров (тот же, что в веб-сервисе app.py)
+    engineers = build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=base_name)
 
     # 1. 4-Pass оптимизация (гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
 
-    # 2. Глобальная оптимизация через Google OR-Tools CP-SAT (полная модель VRPTW-S-C-M)
-    opt_routes, ortools_status_str = optimize_routes_with_ortools(
+    # 2. Глобальная оптимизация через Google OR-Tools RoutingModel (теплый старт из 4-Pass)
+    opt_routes, opt_dropped, ortools_status_str = optimize_routes_with_ortools(
         opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
     )
 
@@ -70,11 +62,12 @@ def evaluate_dataset(csv_path: str) -> None:
     km_gain = ((base_km - opt_km) / base_km * 100) if base_km > 0 else 0
 
     # Валидация
-    val = validate_solution(opt_routes, requests, engineers)
+    val = validate_solution(opt_routes, requests, engineers, unassigned=opt_dropped)
+    audit_line = "✅ 100% ВАЛИДНО (0 нарушений)" if val["is_valid"] else f"❌ Нарушений: {val['total_violations']}"
 
     print(f"Офис/склад района: {depot_addr or 'Автоопределение по району'}")
     print(f"Статус оптимизатора: {ortools_status_str}")
-    print(f"Аудит ограничений: {'✅ 100% ВАЛИДНО (0 нарушений)' if val['is_valid'] else f'❌ Нарушений: {val['total_violations']}'}")
+    print(f"Аудит ограничений: {audit_line}")
     print(f"Всего заявок в файле: {len(requests)}")
     print(f"  • Аварии:      {sum(1 for r in requests if r.req_type == 'emergency')}")
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")
