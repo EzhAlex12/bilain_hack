@@ -1516,6 +1516,30 @@
       return base + coordsStr + '?overview=full&geometries=geojson';
     }
 
+    // Публичные серверы OSRM (особенно FOSSGIS) отвечают 429 Too Many Requests на залп из запросов
+    // всех бригад сразу — поэтому запросы идут по очереди с паузой, а на 429 делается повтор с ожиданием
+    let osrmQueue = Promise.resolve();
+    const OSRM_GAP_MS = 300;
+    const OSRM_RETRIES = 3;
+
+    function osrmFetchQueued(url, timeoutMs) {
+      const task = osrmQueue.then(async () => {
+        for (let attempt = 0; attempt <= OSRM_RETRIES; attempt++) {
+          const ctrl = new AbortController();
+          const tId = setTimeout(() => ctrl.abort(), timeoutMs);
+          try {
+            const resp = await fetch(url, { signal: ctrl.signal });
+            if (resp.status !== 429 || attempt === OSRM_RETRIES) return resp;
+          } finally {
+            clearTimeout(tId);
+          }
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      });
+      osrmQueue = task.catch(() => {}).then(() => new Promise(r => setTimeout(r, OSRM_GAP_MS)));
+      return task;
+    }
+
     // МУЛЬТИ-ТОЧЕЧНЫЙ ЗАПРОС ДОРОЖНОГО ГРАФА OSRM (1 запрос на весь маршрут бригады)
     async function fetchFullRouteGeometry(latlngs, transport, eng) {
       if (!latlngs || latlngs.length < 2) return null;
@@ -1531,11 +1555,7 @@
       try {
         const coordsStr = latlngs.map(pt => pt[1].toFixed(5) + ',' + pt[0].toFixed(5)).join(';');
         const url = osrmRouteUrl(cfg, coordsStr);
-
-        const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 4500);
-        const resp = await fetch(url, { signal: ctrl.signal });
-        clearTimeout(tId);
+        const resp = await osrmFetchQueued(url, 8000);
 
         if (resp.ok) {
           const data = await resp.json();
@@ -1613,7 +1633,7 @@
       // 2. Высокоточный открытый дорожный граф OSRM
       try {
         const url = osrmRouteUrl(cfg, `${c1[1]},${c1[0]};${c2[1]},${c2[0]}`);
-        const resp = await fetch(url);
+        const resp = await osrmFetchQueued(url, 8000);
         if (resp.ok) {
           const data = await resp.json();
           if (data.routes && data.routes[0] && data.routes[0].geometry) {
