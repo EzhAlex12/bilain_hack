@@ -2349,13 +2349,14 @@
       fromEng.tasks = fromEng.tasks.filter(t => t.id !== reassignState.taskId);
       recomputeEngineer(fromEng);
 
-      // 2. Добавляем заявку в целевого инженера по рассчитанному плану
+      // 2. Добавляем заявку в целевого инженера по рассчитанному плану и пересчитываем его день
       toEng.tasks = reassignState.targetPlan.schedule.map(s => s.task);
-      toEng.schedule = reassignState.targetPlan.schedule;
-      toEng.totalKm = reassignState.targetPlan.kmAcc;
-      toEng.totalDriveMin = reassignState.targetPlan.driveMinAcc;
+      recomputeEngineer(toEng);
 
-      // 3. Обновляем сессию и рендерим
+      // 3. Пересчитываем общие метрики решения (пробег, время в пути, число выполненных заявок)
+      recomputeSolutionStats(session.solution);
+
+      // 4. Обновляем сессию и рендерим
       closeReassignModalDirect();
       renderActiveSession();
       alert('✓ Заявка №' + reassignState.taskId + ' успешно передана бригаде ' + toEng.name + '!');
@@ -2606,11 +2607,12 @@
     }
 
     function renderKPI(sol, base) {
-      document.getElementById('kpiEngineers').innerText = sol.engineers.length;
+      const activeCount = sol.engineers.filter(e => e.tasks && e.tasks.length > 0).length;
+      document.getElementById('kpiEngineers').innerText = activeCount;
       document.getElementById('kpiMileage').innerText = sol.totalKm + ' км';
       document.getElementById('kpiTasks').innerText = sol.assignedCount;
 
-      const pass4Count = sol.engineers.reduce((acc, e) => acc + e.tasks.filter(t => t.category === 'additional_order').length, 0);
+      const pass4Count = sol.engineers.reduce((acc, e) => acc + (e.tasks || []).filter(t => t.category === 'additional_order').length, 0);
       document.getElementById('kpiSaved').innerText = pass4Count;
     }
 
@@ -3158,6 +3160,16 @@
 
     // ПЕРЕСЧЕТ РАСПИСАНИЯ ОДНОГО ИНЖЕНЕРА
     function recomputeEngineer(eng) {
+      if (!eng.tasks || eng.tasks.length === 0) {
+        eng.schedule = [];
+        eng.returnKm = 0;
+        eng.returnMin = 0;
+        eng.finishTime = eng.shiftStart;
+        eng.totalKm = 0;
+        eng.totalDriveMin = 0;
+        return;
+      }
+
       let curTime = eng.shiftStart;
       let curCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
       let kmAcc = 0;
