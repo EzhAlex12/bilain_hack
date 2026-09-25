@@ -119,7 +119,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     # Сериализуемые маршруты
     serialized_routes = []
     colors = [
-        "#E6194B", "#3CBL58", "#FFE119", "#4363D8", "#F58231",
+        "#E6194B", "#3CB44B", "#FFE119", "#4363D8", "#F58231",
         "#911EB4", "#42D4F4", "#F032E6", "#BFEF45", "#FABED4",
         "#469990", "#DCBEFF", "#9A6324", "#FFFAC8", "#800000"
     ]
@@ -198,7 +198,9 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
                     "category": "accident" if v.request.req_type == "emergency" else (
                         "additional_order" if v.request.req_type == "extra_order" else v.request.req_type
                     ),
-                    "reqSkill": v.request.req_type,
+                    "reqSkill": "accident" if v.request.req_type in ("emergency", "accident") else (
+                        "local_repair" if v.request.req_type in ("repair", "local_repair") else v.request.req_type
+                    ),
                     "durationMin": v.request.work_duration_min,
                     "district": v.request.district,
                     "address": v.request.address,
@@ -220,12 +222,19 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "name": eng.id,
             "role": ("🚗 Авто-инженер (Аварийщик)" if "emergency" in eng.skills and eng.transport == "car" else
                      ("🚗 Авто-инженер" if eng.transport == "car" else
-                      ("🚲 Вело-инженер" if eng.transport == "bicycle" else "🚶 Пеший специалист"))),
+                      ("🚌 Инженер на общественном транспорте" if eng.transport == "transit" else
+                       ("🚲 Вело-инженер (СИМ)" if eng.transport == "bicycle" else "🚶 Пеший специалист")))),
             "transport": eng.transport,
             "color": color,
+            "skills": list(eng.skills),
+            "shiftStart": eng.shift_start_min,
+            "shiftEnd": eng.shift_end_min,
             "startCoords": [eng.home_lat, eng.home_lon],
             "tasks": [s["task"] for s in schedule],
             "schedule": schedule,
+            "returnKm": round(r.return_km, 1),
+            "returnMin": r.return_min,
+            "finishTime": r.finish_time_min,
             "totalKm": round(r.total_km, 1),
             "totalDriveMin": r.total_travel_min
         })

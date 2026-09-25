@@ -24,6 +24,7 @@ from vrptw_4pass_solver import (
     explain_visit,
     explain_dropped,
     fmt_time,
+    validate_solution,
 )
 
 
@@ -68,8 +69,12 @@ def evaluate_dataset(csv_path: str) -> None:
     staff_gain = ((base_staff - opt_staff) / base_staff * 100) if base_staff > 0 else 0
     km_gain = ((base_km - opt_km) / base_km * 100) if base_km > 0 else 0
 
+    # Валидация
+    val = validate_solution(opt_routes, requests, engineers)
+
     print(f"Офис/склад района: {depot_addr or 'Автоопределение по району'}")
     print(f"Статус оптимизатора: {ortools_status_str}")
+    print(f"Аудит ограничений: {'✅ 100% ВАЛИДНО (0 нарушений)' if val['is_valid'] else f'❌ Нарушений: {val['total_violations']}'}")
     print(f"Всего заявок в файле: {len(requests)}")
     print(f"  • Аварии:      {sum(1 for r in requests if r.req_type == 'emergency')}")
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")

@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Математическая модель и алгоритм VRP-TW-S-C-M (CP-SAT) | билайн бизнес</title>
+  <title>Математическая модель и алгоритм VRP-TW-S-C-M (OR-Tools) | билайн бизнес</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
@@ -32,123 +32,32 @@
       box-shadow: 0 4px 20px rgba(0,0,0,0.06);
       border: 1px solid var(--beeline-border);
     }
-    .doc-header {
-      border-bottom: 3px solid var(--beeline-yellow);
-      padding-bottom: 20px;
-      margin-bottom: 30px;
-    }
-    .brand-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: var(--beeline-yellow);
-      color: #000;
-      font-weight: 800;
-      font-size: 13px;
-      padding: 4px 10px;
-      border-radius: 4px;
-      margin-bottom: 12px;
-    }
     h1 { font-size: 24px; font-weight: 800; color: var(--beeline-black); margin: 0 0 10px 0; }
-    .subtitle { font-size: 13px; color: #666; margin-bottom: 16px; line-height: 1.4; }
     h2 { font-size: 18px; font-weight: 700; color: var(--beeline-black); border-bottom: 1px solid #EEE; padding-bottom: 6px; margin-top: 36px; }
     h3 { font-size: 15px; font-weight: 700; color: #333; margin-top: 24px; }
     p, li { font-size: 14px; color: #333; }
-    ul, ol { padding-left: 24px; margin: 8px 0; }
-    li { margin-bottom: 6px; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0;
-      font-size: 13px;
-    }
-    table th, table td {
-      border: 1px solid #DDD;
-      padding: 8px 12px;
-      text-align: left;
-    }
-    table th {
-      background: #F4F5F7;
-      font-weight: 700;
-      color: #111;
-    }
-    table tr:nth-child(even) { background: #FAFAFA; }
-    blockquote {
-      background: #FFFDF0;
-      border-left: 4px solid var(--beeline-yellow);
-      margin: 16px 0;
-      padding: 10px 16px;
-      border-radius: 0 6px 6px 0;
-      font-size: 13px;
-      color: #444;
-    }
-    code {
-      background: #F0F1F3;
-      padding: 2px 5px;
-      border-radius: 4px;
-      font-family: 'SFMono-Regular', Consolas, Monaco, monospace;
-      font-size: 12px;
-      color: #C2185B;
-    }
-    pre {
-      background: #1E1E1E;
-      color: #D4D4D4;
-      padding: 14px;
-      border-radius: 8px;
-      overflow-x: auto;
-      font-size: 12px;
-    }
-    pre code { background: transparent; color: inherit; padding: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    table th, table td { border: 1px solid #DDD; padding: 8px 12px; text-align: left; }
+    table th { background: #F4F5F7; font-weight: 700; color: #111; }
+    blockquote { background: #FFFDF0; border-left: 4px solid var(--beeline-yellow); margin: 16px 0; padding: 10px 16px; border-radius: 0 6px 6px 0; font-size: 13px; color: #444; }
+    code { background: #F0F1F3; padding: 2px 5px; border-radius: 4px; font-size: 12px; color: #C2185B; }
+    pre { background: #1E1E1E; color: #D4D4D4; padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
     .floating-print-btn {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: var(--beeline-black);
-      color: var(--beeline-yellow);
-      border: 2px solid var(--beeline-yellow);
-      padding: 12px 20px;
-      border-radius: 30px;
-      font-weight: 800;
-      font-size: 14px;
-      cursor: pointer;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.2s;
-      z-index: 10000;
-    }
-    .floating-print-btn:hover {
-      background: #333;
-      transform: translateY(-2px);
+      position: fixed; bottom: 24px; right: 24px; background: var(--beeline-black); color: var(--beeline-yellow);
+      border: 2px solid var(--beeline-yellow); padding: 12px 20px; border-radius: 30px; font-weight: 800; font-size: 14px;
+      cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.3); z-index: 10000;
     }
     @media print {
       body { background: #FFF !important; }
-      .page-container {
-        box-shadow: none !important;
-        border: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        max-width: 100% !important;
-      }
+      .page-container { box-shadow: none !important; border: none !important; margin: 0 !important; padding: 0 !important; max-width: 100% !important; }
       .floating-print-btn { display: none !important; }
-      @page {
-        size: A4;
-        margin: 15mm;
-      }
-      h2 { page-break-after: avoid; }
-      table, pre, blockquote { page-break-inside: avoid; }
+      @page { size: A4; margin: 15mm; }
     }
   </style>
 </head>
 <body>
-
-  <button class="floating-print-btn" onclick="window.print()">
-    🖨️ Сохранить в PDF (Cmd + P)
-  </button>
-
-  <div class="page-container" id="content">
-<h1>📑 Математическая модель, архитектура и алгоритм интеллектуальной маршрутизации выездных инженеров (VRP-TW-S-C-M)</h1>
+  <button class="floating-print-btn" onclick="window.print()">🖨️ Сохранить в PDF (Cmd + P)</button>
+  <div class="page-container" id="content"><h1>📑 Математическая модель, архитектура и алгоритм интеллектуальной маршрутизации выездных инженеров (VRP-TW-S-C-M)</h1>
 <blockquote><b>ПАО «ВымпелКом» (билайн бизнес)</b>  </blockquote>
 <blockquote><b>Хакатон «Лидеры цифровой трансформации 2026» • Задача №3</b>  </blockquote>
 <blockquote><b>Тема:</b> Интеллектуальная система автоматической диспетчеризации, динамического построения маршрутов и оперативного перепланирования выездных специалистов.  </blockquote>
@@ -349,7 +258,6 @@
 <p>Кнопка <b><code>💡 Объяснение</code></b> формирует структурированное текстовое обоснование:</p>
 <li>Почему выбран именно этот специалист (допуск, ближайшая позиция, минимальный прирост пути).</li>
 <li>Проверенные ограничения (клиентское окно, лимит смены, оборудование).</li>
-<li>Географическая связность (предыдущая и следующая остановка).</li>
-  </div>
+<li>Географическая связность (предыдущая и следующая остановка).</li></div>
 </body>
 </html>

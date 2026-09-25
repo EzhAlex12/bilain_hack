@@ -1401,46 +1401,50 @@
           dgisTransport: 'transit',
           osrmProfile: 'driving',
           dashArray: '10, 5',
-          weight: 4
+          weight: 4,
+          modeDesc: 'Общественный транспорт (метро/автобус)'
         };
       } else if (transport === 'bicycle') {
         return {
-          name: 'На велосипеде',
+          name: 'На велосипеде / СИМ',
           icon: '🚲',
           baseSpeedKmh: 16.0,
-          windingFactor: 1.25,
-          overheadMin: 2,
+          windingFactor: 1.15,
+          overheadMin: 1,
           ignoreTraffic: true,
           dgisTransport: 'bicycle',
           osrmProfile: 'bike',
           dashArray: '8, 8',
-          weight: 4
+          weight: 4,
+          modeDesc: 'Велодорожки, тротуары и дворовые зоны'
         };
       } else if (transport === 'foot' || transport === 'pedestrian') {
         return {
           name: 'Пешком',
           icon: '🚶',
-          baseSpeedKmh: 4.6,
-          windingFactor: 1.20,
+          baseSpeedKmh: 4.8,
+          windingFactor: 1.10,
           overheadMin: 1,
           ignoreTraffic: true,
           dgisTransport: 'pedestrian',
           osrmProfile: 'foot',
           dashArray: '3, 6',
-          weight: 3.5
+          weight: 3.5,
+          modeDesc: 'Тротуары, переходы и сквозные арки домов'
         };
       } else { // car / driving
         return {
           name: 'На автомобиле',
           icon: '🚗',
-          baseSpeedKmh: 38.0,
+          baseSpeedKmh: 35.0,
           windingFactor: 1.35,
-          overheadMin: 4,
+          overheadMin: 3,
           ignoreTraffic: false,
           dgisTransport: 'driving',
           osrmProfile: 'driving',
           dashArray: null,
-          weight: 4.5
+          weight: 4.5,
+          modeDesc: 'Автомобильные дороги'
         };
       }
     }
@@ -1597,6 +1601,18 @@
     function interpolateStreetPath(c1, c2, cfg) {
       const dlat = c2[0] - c1[0];
       const dlon = c2[1] - c1[1];
+      if (cfg && (cfg.dgisTransport === 'pedestrian' || cfg.name === 'Пешком' || cfg.icon === '🚶')) {
+        // Траектория пешехода: прямое перемещение по тротуарам, пешеходным переходам и сквозным аркам
+        const p1 = [c1[0] + dlat * 0.35, c1[1] + dlon * 0.20];
+        const p2 = [c1[0] + dlat * 0.65, c1[1] + dlon * 0.80];
+        return [c1, p1, p2, c2];
+      } else if (cfg && (cfg.dgisTransport === 'bicycle' || cfg.name === 'На велосипеде / СИМ' || cfg.icon === '🚲')) {
+        // Траектория велосипеда: велодорожки, тротуары и дворовые зоны
+        const p1 = [c1[0] + dlat * 0.40, c1[1] + dlon * 0.15];
+        const p2 = [c1[0] + dlat * 0.60, c1[1] + dlon * 0.85];
+        return [c1, p1, p2, c2];
+      }
+      // Автомобильная траектория по дорожным блокам
       const p1 = [c1[0] + dlat * 0.45, c1[1] + dlon * 0.08];
       const p2 = [c1[0] + dlat * 0.55, c1[1] + dlon * 0.92];
       return [c1, p1, p2, c2];
@@ -1898,7 +1914,16 @@
 
     // ВСТАВКА ЗАЯВКИ В МАРШРУТ
     function tryInsert(eng, req, allowWait) {
-      if (!eng.skills.includes(req.reqSkill)) return null;
+      const engSkills = eng.skills || [];
+      const reqSkill = req.reqSkill || req.category || '';
+      const hasSkill = engSkills.includes(reqSkill) ||
+        (reqSkill === 'accident' && (engSkills.includes('emergency') || engSkills.includes('accident'))) ||
+        (reqSkill === 'emergency' && (engSkills.includes('emergency') || engSkills.includes('accident'))) ||
+        (reqSkill === 'local_repair' && (engSkills.includes('repair') || engSkills.includes('local_repair'))) ||
+        (reqSkill === 'repair' && (engSkills.includes('repair') || engSkills.includes('local_repair'))) ||
+        (reqSkill === 'connection' && engSkills.includes('connection')) ||
+        (reqSkill === 'extra_order' && engSkills.includes('extra_order'));
+      if (!hasSkill) return null;
       if (req.reqTransport && eng.transport !== req.reqTransport) return null;
 
       const n = eng.tasks.length;
@@ -1921,11 +1946,11 @@
           driveMinAcc += legDrive;
 
           const arrTime = curTime + legDrive;
-          if (arrTime > t.winEnd) { ok = false; break; }
-
           const startWork = Math.max(arrTime, t.winStart);
           const endWork = startWork + t.durationMin;
-          if (endWork > eng.shiftEnd) { ok = false; break; }
+
+          // Строгий инвариант: работы завершены ДО конца окна клиента и ДО конца смены
+          if (endWork > t.winEnd || endWork > eng.shiftEnd) { ok = false; break; }
 
           schedule.push({
             task: t,
@@ -1941,7 +1966,13 @@
         }
 
         if (ok) {
-          return { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
+          const depotCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
+          const dBack = roadDistanceKm(curCoords, depotCoords, eng.transport);
+          const tBack = travelTimeMin(curCoords, depotCoords, eng.transport, curTime);
+          if (curTime + tBack > eng.shiftEnd) {
+            continue;
+          }
+          return { pos: pos, kmAcc: kmAcc + dBack, driveMinAcc: driveMinAcc + tBack, schedule: schedule };
         }
       }
       return null;
@@ -2896,13 +2927,42 @@
         coords: coords
       };
 
-      // Ищем инженера с квалификацией accident
-      const candidateEngs = session.solution.engineers.filter(e => e.skills.includes('accident'));
-      const targetEng = candidateEngs[0] || session.solution.engineers[0];
+      // Ищем инженеров с квалификацией accident / emergency
+      const candidateEngs = session.solution.engineers.filter(e => e.skills && (e.skills.includes('accident') || e.skills.includes('emergency')));
+      let targetEng = candidateEngs[0] || session.solution.engineers[0];
+      let assigned = false;
 
-      // Вставляем с высшим приоритетом в начало или по времени
-      targetEng.tasks.unshift(newAcc);
-      recomputeEngineer(targetEng);
+      // 1. Пытаемся корректно встроить аварию в график без нарушения окон других клиентов
+      for (const eng of candidateEngs) {
+        const ins = tryInsert(eng, newAcc, true);
+        if (ins) {
+          eng.tasks.splice(ins.pos, 0, newAcc);
+          recomputeEngineer(eng);
+          targetEng = eng;
+          assigned = true;
+          break;
+        }
+      }
+
+      // 2. Если свободных окон нет, вытесняем наименее приоритетную задачу (локальный ремонт / дозаказ)
+      if (!assigned && targetEng) {
+        let displaced = null;
+        for (let i = targetEng.tasks.length - 1; i >= 0; i--) {
+          const cat = targetEng.tasks[i].category || targetEng.tasks[i].reqSkill;
+          if (cat === 'repair' || cat === 'local_repair' || cat === 'additional_order' || cat === 'extra_order') {
+            displaced = targetEng.tasks.splice(i, 1)[0];
+            break;
+          }
+        }
+        targetEng.tasks.unshift(newAcc);
+        recomputeEngineer(targetEng);
+        if (displaced) {
+          session.solution.unassigned.push({
+            req: displaced,
+            reason: 'Вытеснена срочной аварией на ТКД №' + accId + ' у бригады ' + targetEng.name + ' в ' + timeVal
+          });
+        }
+      }
 
       recomputeSolutionStats(session.solution);
       renderActiveSession();
@@ -2951,8 +3011,14 @@
       }
 
       eng.schedule = schedule;
-      eng.totalKm = kmAcc;
-      eng.totalDriveMin = driveMinAcc;
+      const depotCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
+      const dBack = roadDistanceKm(curCoords, depotCoords, eng.transport);
+      const tBack = travelTimeMin(curCoords, depotCoords, eng.transport, curTime);
+      eng.returnKm = Math.round(dBack * 10) / 10;
+      eng.returnMin = tBack;
+      eng.finishTime = curTime + tBack;
+      eng.totalKm = Math.round((kmAcc + dBack) * 10) / 10;
+      eng.totalDriveMin = driveMinAcc + tBack;
     }
 
     // ПЕРЕСЧЕТ ОБЩИХ МЕТРИК РЕШЕНИЯ
