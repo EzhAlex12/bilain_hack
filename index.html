@@ -378,6 +378,23 @@
       transform: translateY(-1px);
     }
 
+        /* СВОРАЧИВАЕМЫЕ ПАНЕЛИ */
+    .collapsible-header {
+      display: flex; justify-content: space-between; align-items: center;
+      cursor: pointer; user-select: none;
+    }
+    .collapsible-header .chevron {
+      font-size: 10px; transition: transform 0.2s ease; color: #888; margin-left: 6px; display: inline-block;
+    }
+    .collapsible-header:hover .chevron { color: #111; }
+    .collapsible-header .chevron.collapsed { transform: rotate(-90deg); }
+    .collapsible-body {
+      overflow: hidden;
+    }
+    .collapsible-body.collapsed {
+      display: none !important;
+    }
+
         /* ПАНЕЛЬ УПРАВЛЕНИЯ ИНЦИДЕНТАМИ */
     .events-toolbar {
       padding: 12px 16px; background: #FFFDF5; border-bottom: 1px solid #FFE082;
@@ -1044,6 +1061,37 @@
         </div>
       </div>
 
+      <!-- МОДЕЛЬ ПРОБОК (ИССЛЕДОВАНИЕ ЯНДЕКС.ПРОБОК 2014) -->
+      <div class="traffic-toolbar" style="background:#FFF; border:1px solid #E0E2E6; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+        <div class="collapsible-header" onclick="toggleCollapsible('trafficBody', 'trafficChevron')">
+          <div style="font-weight:700; font-size:12px; display:flex; align-items:center; gap:6px; color:#1A1A1A;">
+            <span>🚦 Пробки Москвы (Яндекс.Карты):</span>
+            <span class="chevron collapsed" id="trafficChevron">▼</span>
+          </div>
+          <button id="btnTrafficToggle" onclick="event.stopPropagation(); toggleYandexTraffic()" style="font-size:11px; font-weight:700; padding:4px 10px; border-radius:14px; border:none; cursor:pointer; background:#2E7D32; color:#FFF;" title="Включить/выключить динамический учет пробок Яндекса">
+            ✅ ВКЛ
+          </button>
+        </div>
+        <div class="collapsible-body collapsed" id="trafficBody">
+          <div style="margin-top:8px;">
+            <div id="trafficInfoCard" style="background:#F9FAFB; border-radius:6px; padding:8px 10px; font-size:11px; color:#444; border-left:3px solid #2E7D32;">
+              <div style="display:flex; justify-content:space-between; font-weight:700; margin-bottom:3px;">
+                <span id="trafficCurrentTitle">Москва: Динамический профиль</span>
+                <span id="trafficCurrentScore" style="color:#C62828;">Активен (до 8.2 б.)</span>
+              </div>
+              <div id="trafficCurrentDesc" style="color:#666; font-size:10.5px; line-height:1.35;">
+                Почасовая калибровка на исследовании Яндекс.Пробок (радиалы ВАО/ЮВАО до +75%). Пешеходы и метро — иммунитет 1.0.
+              </div>
+              <div style="margin-top:6px;">
+                <a href="https://yandex.ru/company/researches/2014/ya_traffic_msk_2014" target="_blank" style="color:#0277BD; text-decoration:none; font-size:10.5px; font-weight:600;">
+                  🔗 Исследование Яндекс.Пробок
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ВЫБОР ТИПА ТРАНСПОРТА ИНЖЕНЕРОВ -->
       <div class="routing-toolbar">
         <div class="routing-header">
@@ -1070,64 +1118,71 @@
 
       <!-- ПАНЕЛЬ СЦЕНАРИЕВ ПЕРЕПЛАНИРОВАНИЯ (ТРЕБОВАНИЕ ТЗ) -->
       <div class="events-toolbar">
-        <div class="events-header">
-          <div class="events-title">⚡ Моделирование инцидентов:</div>
-          <button class="btn-reset-plan" onclick="resetToOriginalPlan()" title="Сбросить инциденты и вернуть базовый план">🔄 Сброс плана</button>
+        <div class="events-header collapsible-header" onclick="toggleCollapsible('incidentBody', 'incidentChevron')">
+          <div class="events-title">
+            <span>⚡ Моделирование инцидентов:</span>
+            <span class="chevron collapsed" id="incidentChevron">▼</span>
+          </div>
+          <button class="btn-reset-plan" onclick="event.stopPropagation(); resetToOriginalPlan()" title="Сбросить инциденты и вернуть базовый план">🔄 Сброс плана</button>
         </div>
 
-        <div class="incident-tabs">
-          <button class="incident-tab-btn active" id="tabBtnCancel" onclick="switchIncidentTab('cancel')">❌ Отмена клиентом</button>
-          <button class="incident-tab-btn" id="tabBtnBreakdown" onclick="switchIncidentTab('breakdown')">⚠️ Поломка авто</button>
-          <button class="incident-tab-btn" id="tabBtnAccident" onclick="switchIncidentTab('accident')">🚨 Срочная авария</button>
-        </div>
-
-        <!-- Панель 1: Отмена заявки -->
-        <div class="incident-panel active" id="panelCancel">
-          <label class="incident-label">Выберите заявку для отмены клиентом:</label>
-          <select class="incident-select" id="cancelReqSelect">
-            <option>Загрузка заявок...</option>
-          </select>
-          <button class="btn-incident-apply red" onclick="applyCancelEvent()">
-            ❌ Отменить заявку и оптимизировать маршрут
-          </button>
-        </div>
-
-        <!-- Панель 2: Поломка транспорта инженера -->
-        <div class="incident-panel" id="panelBreakdown">
-          <div style="display:flex; gap:8px;">
-            <div style="flex:2;">
-              <label class="incident-label">Инженер:</label>
-              <select class="incident-select" id="breakdownEngSelect"></select>
+        <div class="collapsible-body collapsed" id="incidentBody">
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+            <div class="incident-tabs">
+              <button class="incident-tab-btn active" id="tabBtnCancel" onclick="switchIncidentTab('cancel')">❌ Отмена клиентом</button>
+              <button class="incident-tab-btn" id="tabBtnBreakdown" onclick="switchIncidentTab('breakdown')">⚠️ Поломка авто</button>
+              <button class="incident-tab-btn" id="tabBtnAccident" onclick="switchIncidentTab('accident')">🚨 Срочная авария</button>
             </div>
-            <div style="flex:1;">
-              <label class="incident-label">Время схода:</label>
-              <input type="time" class="incident-input" id="breakdownTime" value="13:30">
+
+            <!-- Панель 1: Отмена заявки -->
+            <div class="incident-panel active" id="panelCancel">
+              <label class="incident-label">Выберите заявку для отмены клиентом:</label>
+              <select class="incident-select" id="cancelReqSelect">
+                <option>Загрузка заявок...</option>
+              </select>
+              <button class="btn-incident-apply red" onclick="applyCancelEvent()">
+                ❌ Отменить заявку и оптимизировать маршрут
+              </button>
+            </div>
+
+            <!-- Панель 2: Поломка транспорта инженера -->
+            <div class="incident-panel" id="panelBreakdown">
+              <div style="display:flex; gap:8px;">
+                <div style="flex:2;">
+                  <label class="incident-label">Инженер:</label>
+                  <select class="incident-select" id="breakdownEngSelect"></select>
+                </div>
+                <div style="flex:1;">
+                  <label class="incident-label">Время схода:</label>
+                  <input type="time" class="incident-input" id="breakdownTime" value="13:30">
+                </div>
+              </div>
+              <button class="btn-incident-apply orange" onclick="applyBreakdownEvent()">
+                ⚠️ Снять инженера с линии и передать заявки
+              </button>
+            </div>
+
+            <!-- Панель 3: Внезапная авария на ТКД -->
+            <div class="incident-panel" id="panelAccident">
+              <div style="display:flex; gap:8px;">
+                <div style="flex:1;">
+                  <label class="incident-label">Район аварии:</label>
+                  <select class="incident-select" id="accidentDistrictSelect"></select>
+                </div>
+                <div style="flex:1;">
+                  <label class="incident-label">Время фиксации:</label>
+                  <input type="time" class="incident-input" id="accidentTime" value="11:30">
+                </div>
+              </div>
+              <div>
+                <label class="incident-label">Адрес узла связи (ТКД):</label>
+                <input type="text" class="incident-input" id="accidentAddress" value="ул. Юных Ленинцев, д. 42 (ТКД)">
+              </div>
+              <button class="btn-incident-apply dark-red" onclick="applyAccidentEvent()">
+                🚨 Ввести аварию в план с высшим приоритетом
+              </button>
             </div>
           </div>
-          <button class="btn-incident-apply orange" onclick="applyBreakdownEvent()">
-            ⚠️ Снять инженера с линии и передать заявки
-          </button>
-        </div>
-
-        <!-- Панель 3: Внезапная авария на ТКД -->
-        <div class="incident-panel" id="panelAccident">
-          <div style="display:flex; gap:8px;">
-            <div style="flex:1;">
-              <label class="incident-label">Район аварии:</label>
-              <select class="incident-select" id="accidentDistrictSelect"></select>
-            </div>
-            <div style="flex:1;">
-              <label class="incident-label">Время фиксации:</label>
-              <input type="time" class="incident-input" id="accidentTime" value="11:30">
-            </div>
-          </div>
-          <div>
-            <label class="incident-label">Адрес узла связи (ТКД):</label>
-            <input type="text" class="incident-input" id="accidentAddress" value="ул. Юных Ленинцев, д. 42 (ТКД)">
-          </div>
-          <button class="btn-incident-apply dark-red" onclick="applyAccidentEvent()">
-            🚨 Ввести аварию в план с высшим приоритетом
-          </button>
         </div>
       </div>
       
@@ -1518,21 +1573,116 @@
       }
     }
 
-    // РАСЧЁТ ВРЕМЕНИ В ПУТИ С УЧЁТОМ ТРАНСПОРТА И ПРОБОК 2ГИС
+    // =========================================================================
+    // МОДЕЛЬ ПРОБОК МОСКВЫ (ИССЛЕДОВАНИЕ ЯНДЕКС.ПРОБОК 2014)
+    // https://yandex.ru/company/researches/2014/ya_traffic_msk_2014
+    // =========================================================================
+    let yandexTrafficEnabled = true; // Активно по умолчанию!
+
+    const YANDEX_HOURLY_SCORE = {
+      6: 1.5, 7: 3.2, 8: 6.8, 9: 7.2, 10: 5.6,
+      11: 4.2, 12: 4.0, 13: 4.1, 14: 4.3, 15: 4.8,
+      16: 5.5, 17: 6.9, 18: 8.2, 19: 7.9, 20: 5.8,
+      21: 3.6, 22: 2.1, 23: 1.5
+    };
+
+    function getYandexTrafficScore(timeMin) {
+      if (timeMin === undefined || timeMin === null) return 4.0;
+      const hour = timeMin / 60.0;
+      const hFloor = Math.floor(hour);
+      const hCeil = Math.min(23, hFloor + 1);
+      const weight = hour - hFloor;
+      const bFloor = YANDEX_HOURLY_SCORE[hFloor] || 2.0;
+      const bCeil = YANDEX_HOURLY_SCORE[hCeil] || 2.0;
+      return Math.round((bFloor * (1.0 - weight) + bCeil * weight) * 10) / 10;
+    }
+
+    function getYandexTrafficMultiplier(timeMin, c1, c2, transport) {
+      if (!yandexTrafficEnabled) return 1.0;
+      // Мультимодальный иммунитет: пешеходы, велосипеды и метро не стоят в пробках
+      if (transport === 'foot' || transport === 'bicycle' || transport === 'transit') {
+        return 1.0;
+      }
+      const score = getYandexTrafficScore(timeMin);
+      let baseMult = 1.0 + Math.max(0, score - 1.5) * 0.095;
+
+      if (c1 && c2) {
+        const cLat = 55.7558, cLon = 37.6173; // Центр Москвы
+        const dFromCenter = Math.pow(c1[0] - cLat, 2) + Math.pow(c1[1] - cLon, 2);
+        const dToCenter = Math.pow(c2[0] - cLat, 2) + Math.pow(c2[1] - cLon, 2);
+        const isToCenter = dToCenter < dFromCenter;
+        const isFromCenter = dToCenter > dFromCenter;
+
+        // Утро (07:30 - 10:15): Заторы радиалов в центр (Шоссе Энтузиастов, Волгоградка до +15%)
+        if (timeMin >= 450 && timeMin <= 615 && isToCenter) {
+          baseMult *= 1.15;
+        }
+        // Вечер (17:30 - 20:15): Из центра в область (вечерний пик на балл выше!)
+        else if (timeMin >= 1050 && timeMin <= 1215 && isFromCenter) {
+          baseMult *= 1.20;
+        }
+      }
+      return Math.round(Math.min(1.85, Math.max(1.0, baseMult)) * 100) / 100;
+    }
+
+    // РАСЧЁТ ВРЕМЕНИ В ПУТИ С УЧЁТОМ ТРАНСПОРТА И ПРОБОК ЯНДЕКСА
     function travelTimeMin(c1, c2, transport, timeMin) {
       transport = transport || globalTransportMode;
       if (transport === 'mixed') transport = 'car';
-      if (activeTravelModel) {
-        const speed = activeTravelModel.speed[transport] || 30;
-        return Math.max(1, pyRound(backendDistanceKm(c1, c2, transport) / speed * 60));
+      let speed = 30;
+      if (activeTravelModel && activeTravelModel.speed[transport]) {
+        speed = activeTravelModel.speed[transport];
+      } else {
+        const cfg = getTransportConfig(transport);
+        speed = cfg.baseSpeedKmh;
       }
-      // Формула строго как travel_time_min в vrptw_4pass_solver.py: km / speed * 60.
-      // Накладные минуты, минимальное плечо и коэффициент пробок здесь применять нельзя —
-      // иначе встроенный движок и бэкенд дают разное время для одного маршрута.
-      const cfg = getTransportConfig(transport);
-      const roadDistKm = roadDistanceKm(c1, c2, transport);
-      return Math.max(1, pyRound((roadDistKm / cfg.baseSpeedKmh) * 60));
+      const roadDistKm = activeTravelModel
+        ? backendDistanceKm(c1, c2, transport)
+        : roadDistanceKm(c1, c2, transport);
+      let baseTime = Math.max(1, pyRound((roadDistKm / speed) * 60));
+
+      if (yandexTrafficEnabled && timeMin !== undefined && timeMin !== null) {
+        const kTraffic = getYandexTrafficMultiplier(timeMin, c1, c2, transport);
+        baseTime = Math.max(1, pyRound(baseTime * kTraffic));
+      }
+      return baseTime;
     }
+
+    async function toggleYandexTraffic() {
+      yandexTrafficEnabled = !yandexTrafficEnabled;
+      const btn = document.getElementById('btnTrafficToggle');
+      const card = document.getElementById('trafficInfoCard');
+      const title = document.getElementById('trafficCurrentTitle');
+      const score = document.getElementById('trafficCurrentScore');
+
+      if (btn) {
+        if (yandexTrafficEnabled) {
+          btn.innerHTML = '✅ ВКЛ';
+          btn.style.background = '#2E7D32';
+          if (card) card.style.borderLeftColor = '#2E7D32';
+          if (title) title.textContent = 'Москва: Динамический профиль';
+          if (score) { score.textContent = 'Активен (до 8.2 б.)'; score.style.color = '#C62828'; }
+        } else {
+          btn.innerHTML = '⚪ ВЫКЛ';
+          btn.style.background = '#757575';
+          if (card) card.style.borderLeftColor = '#757575';
+          if (title) title.textContent = 'Режим свободных дорог';
+          if (score) { score.textContent = '1.0 балл'; score.style.color = '#757575'; }
+        }
+      }
+
+      updateTrafficBadge();
+
+      const session = typeof getActiveSession === 'function' ? getActiveSession() : null;
+      if (session && session.csvInput) {
+        await recalculateWithRouting(true);
+      } else if (session && session.solution && session.solution.engineers) {
+        session.solution.engineers.forEach(eng => recomputeEngineer(eng));
+        recomputeSolutionStats(session.solution);
+        renderActiveSession();
+      }
+    }
+
 
     // ПОЛУЧЕНИЕ РЕАЛЬНОЙ ГЕОМЕТРИИ ДОРОГ ЧЕРЕЗ 2ГИС / OSRM
     
@@ -3033,7 +3183,17 @@
       URL.revokeObjectURL(url);
     }
 
-    
+    // СВОРАЧИВАНИЕ / РАЗВОРАЧИВАНИЕ ПАНЕЛЕЙ
+    function toggleCollapsible(bodyId, chevronId) {
+      const body = document.getElementById(bodyId);
+      const chevron = document.getElementById(chevronId);
+      if (!body) return;
+      const isCollapsed = body.classList.toggle('collapsed');
+      if (chevron) {
+        chevron.classList.toggle('collapsed', isCollapsed);
+      }
+    }
+
     // УПРАВЛЕНИЕ ВКЛАДКАМИ ИНЦИДЕНТОВ
     function switchIncidentTab(tabName) {
       document.querySelectorAll('.incident-tab-btn').forEach(b => b.classList.remove('active'));
@@ -3559,6 +3719,7 @@
           session.baseline = cached.baseline;
           session.engine = cached.engine;
           session.ortools_status = cached.ortools_status;
+          session.originalSolution = JSON.parse(JSON.stringify(cached.solution));
           renderActiveSession();
         } else if (session && session.csvInput) {
           const parsed = parseCsv(session.csvInput);
@@ -3597,7 +3758,7 @@
 
       // ЭТАП 1: Мгновенный быстрый расчёт по 4-Pass (за 20-30 мс)
       const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
-      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, globalTransportMode);
 
       const tabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random()*1000);
       const session = {
@@ -3626,11 +3787,17 @@
 
       session.originalSolution = JSON.parse(JSON.stringify(fastSol));
       tabSessions.push(session);
+
+      // Сохраняем желаемый режим ДО switchTab, который через renderActiveSession сбрасывает globalEngineMode
+      const wantedEngineMode = globalEngineMode;
       renderTabs();
       switchTab(tabId); // Вкладка, карта, инженеры и KPI выводятся МГНОВЕННО БЕЗ СПИННЕРА!
 
       // ЭТАП 2: Если активен режим OR-Tools — запускаем оптимизацию в фоне (без блокировки экрана)
-      if (globalEngineMode === 'ortools') {
+      if (wantedEngineMode === 'ortools') {
+        // Восстанавливаем globalEngineMode, который switchTab → renderActiveSession сбросил
+        globalEngineMode = 'ortools';
+        syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
         checkBackendAlive().then(backend => {
           if (!backend || !backend.hasOrtools) {
             syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
@@ -3689,7 +3856,7 @@
         if (s.transportMode) {
           globalTransportMode = s.transportMode;
           document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
-          const btnMap = { car: 'btnTransCar', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
+          const btnMap = { car: 'btnTransCar', transit: 'btnTransTransit', bicycle: 'btnTransBicycle', foot: 'btnTransFoot', mixed: 'btnTransMixed' };
           const btn = document.getElementById(btnMap[s.transportMode]);
           if (btn) btn.classList.add('active');
         }
@@ -3788,7 +3955,7 @@
         setTimeout(() => mapInstance.invalidateSize(), 50);
       }
 
-      document.getElementById('activeFileName').innerText = session.name + (session.engine ? ' [' + session.engine + ']' : '');
+      document.getElementById('activeFileName').innerText = session.name;
       if (session.engine && session.engine.includes('OR-Tools')) {
         syncEngineUI('ortools', session.ortools_status || '⚡ Google OR-Tools');
       } else {
@@ -4001,17 +4168,20 @@
       const isRemote = parsed.hasSuburbs;
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
 
+      // Сохраняем желаемый режим ДО renderActiveSession, который сбрасывает globalEngineMode
+      const wantedEngineMode = globalEngineMode;
+
       // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана
       const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
-      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, globalTransportMode);
       
-      session.solutions = {
-        'js': {
-          solution: fastSol,
-          baseline: fastBase,
-          engine: 'Встроенный 4-Pass (JS)',
-          ortools_status: 'Допустимое решение (4-Pass)'
-        }
+      // Обновляем только ключ 'js', не уничтожая OR-Tools кеш
+      if (!session.solutions) session.solutions = {};
+      session.solutions['js'] = {
+        solution: fastSol,
+        baseline: fastBase,
+        engine: 'Встроенный 4-Pass (JS)',
+        ortools_status: 'Допустимое решение (4-Pass)'
       };
 
       session.solution = fastSol;
@@ -4023,19 +4193,16 @@
       session.originalSolution = JSON.parse(JSON.stringify(fastSol));
       renderActiveSession();
 
-      // 2. Если выбран режим OR-Tools — запускаем в фоне
-      if (globalEngineMode === 'ortools') {
+      // 2. Если выбран режим OR-Tools — запускаем в фоне (используем wantedEngineMode)
+      if (wantedEngineMode === 'ortools') {
+        // Восстанавливаем globalEngineMode, который renderActiveSession сбросил
+        globalEngineMode = 'ortools';
+        syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
+
         checkBackendAlive().then(backend => {
           if (!backend || !backend.hasOrtools) {
             syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
             return;
-          }
-
-          const badge = document.getElementById('engineStatusBadge');
-          if (badge) {
-            badge.style.background = '#E1F5FE';
-            badge.style.color = '#0277BD';
-            badge.innerHTML = '🔄 Оптимизация OR-Tools...';
           }
 
           const modeAtRequest = session.transportMode || globalTransportMode;
