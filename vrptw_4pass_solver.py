@@ -208,6 +208,8 @@ class Engineer:
     skills: Set[str] = field(default_factory=lambda: {"connection", "extra_order", "repair", "local_repair"})
     equipment_capacity: int = 30
     region: str = MOSCOW_REGION     # бригада работает только внутри своего региона
+    traffic_enabled: bool = False
+    traffic_time_min: int = 540
 
 
 @dataclass
@@ -545,9 +547,60 @@ def polyline_length_km(points: list[tuple[float, float]]) -> float:
     )
 
 
-def travel_time_min(distance_km: float, transport: str) -> int:
+YANDEX_HOURLY_SCORE = {
+    6: 1.5, 7: 3.2, 8: 6.8, 9: 7.2, 10: 5.6,
+    11: 4.2, 12: 4.0, 13: 4.1, 14: 4.3, 15: 4.8,
+    16: 5.5, 17: 6.9, 18: 8.2, 19: 7.9, 20: 5.8,
+    21: 3.6, 22: 2.1, 23: 1.5,
+}
+
+
+def yandex_traffic_multiplier(
+    time_min: int,
+    start: Tuple[float, float],
+    end: Tuple[float, float],
+    transport: str,
+) -> float:
+    if transport in ("foot", "bicycle", "transit"):
+        return 1.0
+
+    hour = time_min / 60.0
+    hour_floor = math.floor(hour)
+    hour_ceil = min(23, hour_floor + 1)
+    weight = hour - hour_floor
+    score_floor = YANDEX_HOURLY_SCORE.get(hour_floor) or 2.0
+    score_ceil = YANDEX_HOURLY_SCORE.get(hour_ceil) or 2.0
+    score = math.floor((score_floor * (1.0 - weight) + score_ceil * weight) * 10 + 0.5) / 10
+    multiplier = 1.0 + max(0.0, score - 1.5) * 0.095
+
+    center = (55.7558, 37.6173)
+    start_distance = (start[0] - center[0]) ** 2 + (start[1] - center[1]) ** 2
+    end_distance = (end[0] - center[0]) ** 2 + (end[1] - center[1]) ** 2
+    is_to_center = end_distance < start_distance
+    is_from_center = end_distance > start_distance
+
+    if 450 <= time_min <= 615 and is_to_center:
+        multiplier *= 1.15
+    elif 1050 <= time_min <= 1215 and is_from_center:
+        multiplier *= 1.20
+
+    return math.floor(min(1.85, max(1.0, multiplier)) * 100 + 0.5) / 100
+
+
+def travel_time_min(
+    distance_km: float,
+    transport: str,
+    traffic_enabled: bool = False,
+    time_min: Optional[int] = None,
+    start: Optional[Tuple[float, float]] = None,
+    end: Optional[Tuple[float, float]] = None,
+) -> int:
     speed = AVG_SPEED_KMH.get(transport, 30.0)
-    return max(1, round(distance_km / speed * 60))
+    base_time = max(1, round(distance_km / speed * 60))
+    if traffic_enabled and time_min is not None and start is not None and end is not None:
+        multiplier = yandex_traffic_multiplier(time_min, start, end, transport)
+        base_time = max(1, math.floor(base_time * multiplier + 0.5))
+    return base_time
 
 
 def fmt_time(mins: int) -> str:
@@ -942,7 +995,10 @@ def recompute_route_schedule(
 
     for req in request_sequence:
         d_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, engineer.transport)
-        t_m = travel_time_min(d_km, engineer.transport)
+        t_m = travel_time_min(
+            d_km, engineer.transport, engineer.traffic_enabled, cur_dep_time,
+            (cur_lat, cur_lon), (req.lat, req.lon),
+        )
         arr_time = cur_dep_time + t_m
         start_work = max(arr_time, req.window_start_min)
         end_work = start_work + req.work_duration_min
@@ -966,7 +1022,10 @@ def recompute_route_schedule(
 
     # Расчет и проверка возврата в депо
     d_back = road_distance_km(cur_lat, cur_lon, engineer.home_lat, engineer.home_lon, engineer.transport)
-    t_back = travel_time_min(d_back, engineer.transport)
+    t_back = travel_time_min(
+        d_back, engineer.transport, engineer.traffic_enabled, cur_dep_time,
+        (cur_lat, cur_lon), (engineer.home_lat, engineer.home_lon),
+    )
     fin_time = cur_dep_time + t_back
 
     if fin_time > engineer.shift_end_min:
@@ -1162,9 +1221,15 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
     elif all(recompute_route_schedule(e, [r]) is None for e in skilled):
         # Даже свободный инженер с пустым маршрутом не успевает: считаем реальное плечо от депо
         e0 = min(skilled, key=lambda e: travel_time_min(
-            road_distance_km(e.home_lat, e.home_lon, r.lat, r.lon, e.transport), e.transport))
+            road_distance_km(e.home_lat, e.home_lon, r.lat, r.lon, e.transport),
+            e.transport, e.traffic_enabled, e.shift_start_min,
+            (e.home_lat, e.home_lon), (r.lat, r.lon),
+        ))
         d_km = road_distance_km(e0.home_lat, e0.home_lon, r.lat, r.lon, e0.transport)
-        t_m = travel_time_min(d_km, e0.transport)
+        t_m = travel_time_min(
+            d_km, e0.transport, e0.traffic_enabled, e0.shift_start_min,
+            (e0.home_lat, e0.home_lon), (r.lat, r.lon),
+        )
         end_work = max(e0.shift_start_min + t_m, r.window_start_min) + r.work_duration_min
         if end_work > r.window_end_min:
             reason = (
@@ -1237,6 +1302,7 @@ def solve_vrptw_ortools_routing(
     dist_m: Dict[str, List[List[int]]] = {}
     transit_min: Dict[str, List[List[int]]] = {}
     for transport in {e.transport for e in engineers}:
+        traffic_engineer = next(e for e in engineers if e.transport == transport)
         d_rows, t_rows = [], []
         for n1, c1 in enumerate(points):
             duration = 0 if n1 < D else requests[n1 - D].work_duration_min
@@ -1244,7 +1310,10 @@ def solve_vrptw_ortools_routing(
             for c2 in points:
                 d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
                 d_row.append(int(round(d * 1000)))
-                t_row.append(travel_time_min(d, transport) + duration)
+                t_row.append(travel_time_min(
+                    d, transport, traffic_engineer.traffic_enabled,
+                    traffic_engineer.traffic_time_min, c1, c2,
+                ) + duration)
             d_rows.append(d_row)
             t_rows.append(t_row)
         dist_m[transport] = d_rows
@@ -1452,7 +1521,10 @@ def validate_solution(
                     f"межрегиональный рейс запрещён")
 
             leg_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, eng.transport)
-            leg_min = travel_time_min(leg_km, eng.transport)
+            leg_min = travel_time_min(
+                leg_km, eng.transport, eng.traffic_enabled, cur_time,
+                (cur_lat, cur_lon), (req.lat, req.lon),
+            )
             total_km_calc += leg_km
 
             exp_arr = cur_time + leg_min
@@ -1479,7 +1551,10 @@ def validate_solution(
 
         d_back = road_distance_km(cur_lat, cur_lon, eng.home_lat, eng.home_lon, eng.transport)
         total_km_calc += d_back
-        t_back = travel_time_min(d_back, eng.transport)
+        t_back = travel_time_min(
+            d_back, eng.transport, eng.traffic_enabled, cur_time,
+            (cur_lat, cur_lon), (eng.home_lat, eng.home_lon),
+        )
         ret_time = cur_time + t_back
 
         if ret_time > eng.shift_end_min:

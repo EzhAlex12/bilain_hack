@@ -29,6 +29,37 @@ import vrptw_4pass_solver as solver  # noqa: E402
 DATASETS = sorted(glob.glob(os.path.join(ROOT, "test_dataset", "*Синтетические*.csv")))
 
 
+def test_traffic_profile_changes_car_schedule_only():
+    start = (55.70, 37.80)
+    destination = (55.75, 37.62)
+
+    def arrival_min(transport, traffic_enabled):
+        engineer = solver.Engineer(
+            id=f"{transport}-{traffic_enabled}",
+            home_lat=start[0],
+            home_lon=start[1],
+            transport=transport,
+            skills={"repair"},
+            traffic_enabled=traffic_enabled,
+        )
+        request = solver.Request(
+            id="traffic-check",
+            lat=destination[0],
+            lon=destination[1],
+            req_type="repair",
+            window_start_min=8 * 60,
+            window_end_min=20 * 60,
+            district="Таганский",
+            address="Тестовый адрес",
+        )
+        result = solver.recompute_route_schedule(engineer, [request])
+        assert result is not None
+        return result[0][0].arrival_min
+
+    assert arrival_min("car", True) > arrival_min("car", False)
+    assert arrival_min("foot", True) == arrival_min("foot", False)
+
+
 @pytest.mark.parametrize("csv_path", DATASETS, ids=os.path.basename)
 def test_4pass_is_valid(csv_path):
     requests, depot, _, brigades = solver.load_dataset(csv_path)
@@ -81,4 +112,7 @@ if __name__ == "__main__":
         test_optimizer_is_valid_and_complete(p)
         test_api_has_no_request_in_both_routes_and_unassigned(p)
         print("✅ OK")
+    print("▶ Тестирование режима пробок ... ", end="", flush=True)
+    test_traffic_profile_changes_car_schedule_only()
+    print("✅ OK")
     print("\n✅ Все тесты успешно пройдены (0 нарушений, 100% валидность)!")

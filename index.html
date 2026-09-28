@@ -3610,11 +3610,12 @@
 
     // Ключ кеша решений: для каждого вида парка своё решение OR-Tools, иначе
     // переключение движка достаёт результат, посчитанный для прошлого транспорта
-    function ortoolsCacheKey(mode) {
-      return 'ortools:' + (mode || globalTransportMode || 'mixed');
+    function ortoolsCacheKey(mode, trafficEnabled, trafficTimeMin) {
+      return 'ortools:' + (mode || globalTransportMode || 'mixed') + ':'
+        + (trafficEnabled ? 'traffic' : 'clear') + ':' + (trafficTimeMin ?? 540);
     }
 
-    async function fetchOrtoolsSolution(csvText, fallbackParsed, transportMode) {
+    async function fetchOrtoolsSolution(csvText, fallbackParsed, transportMode, trafficEnabled, trafficTimeMin) {
       const backend = await checkBackendAlive();
       if (!backend || !backend.uploadUrl) return null;
 
@@ -3625,7 +3626,9 @@
         // штатный смешанный пул, и кнопки парка в режиме OR-Tools ни на что не влияли
         const mode = transportMode || globalTransportMode || 'mixed';
         const uploadUrl = backend.uploadUrl + (backend.uploadUrl.indexOf('?') >= 0 ? '&' : '?')
-          + 'transport=' + encodeURIComponent(mode);
+          + 'transport=' + encodeURIComponent(mode)
+          + '&traffic=' + (trafficEnabled ? '1' : '0')
+          + '&traffic_time=' + encodeURIComponent(String(trafficTimeMin ?? 540));
         const resp = await fetch(uploadUrl, {
           method: 'POST',
           body: csvText,
@@ -3676,6 +3679,12 @@
 
     async function setEngineMode(mode) {
       const session = getActiveSession();
+
+      if (session && session.csvInput) {
+        globalEngineMode = mode;
+        await recalculateWithRouting(true);
+        return;
+      }
 
       if (mode === 'ortools') {
         // 1. Если уже есть вычисленное решение OR-Tools в кеше текущей вкладки — МГНОВЕННО (0 мс) переключаем
@@ -3780,6 +3789,7 @@
 
       const isRemote = parsed.hasSuburbs;
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
+      const trafficEnabledAtRequest = yandexTrafficEnabled;
 
       // ЭТАП 1: Мгновенный быстрый расчёт по 4-Pass (за 20-30 мс)
       const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
@@ -3797,6 +3807,7 @@
         reqCount: parsed.requests.length,
         transportMode: globalTransportMode,
         calcTime: globalRoutingTime,
+        routeCalculationId: 0,
         engine: 'Встроенный 4-Pass (JS)',
         ortools_status: 'Допустимое решение (4-Pass)',
         solutions: {
@@ -3843,12 +3854,14 @@
             isRemote: isRemote,
             timeMin: timeMin,
             brigadeNames: parsed.brigadeNames
-          }, modeAtRequest).then(ortoolsRes => {
+          }, modeAtRequest, trafficEnabledAtRequest, timeMin).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
-              session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
+              session.solutions[ortoolsCacheKey(modeAtRequest, trafficEnabledAtRequest, timeMin)] = ortoolsRes;
               // Ответ идёт секунды: если за это время нажали другую кнопку парка,
               // результат остаётся в кеше, но на экран не попадает
-              if (activeTabId === tabId && globalEngineMode === 'ortools'
+                if (activeTabId === tabId && globalEngineMode === 'ortools'
+                  && session.routeCalculationId === 0
+                  && yandexTrafficEnabled === trafficEnabledAtRequest
                   && (session.transportMode || globalTransportMode) === modeAtRequest) {
                 session.solution = ortoolsRes.solution;
                 session.baseline = ortoolsRes.baseline;
@@ -4195,6 +4208,9 @@
 
       const isRemote = parsed.hasSuburbs;
       const timeMin = parseMinutesStr(globalRoutingTime) || 540;
+      const trafficEnabledAtRequest = yandexTrafficEnabled;
+      const calculationId = (session.routeCalculationId || 0) + 1;
+      session.routeCalculationId = calculationId;
 
       // Сохраняем желаемый режим ДО renderActiveSession, который сбрасывает globalEngineMode
       const wantedEngineMode = globalEngineMode;
@@ -4240,12 +4256,14 @@
             isRemote: isRemote,
             timeMin: timeMin,
             brigadeNames: parsed.brigadeNames
-          }, modeAtRequest).then(ortoolsRes => {
+          }, modeAtRequest, trafficEnabledAtRequest, timeMin).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
-              session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
+              session.solutions[ortoolsCacheKey(modeAtRequest, trafficEnabledAtRequest, timeMin)] = ortoolsRes;
               // Ответ идёт секунды: если за это время нажали другую кнопку парка,
               // результат остаётся в кеше, но на экран не попадает
-              if (globalEngineMode === 'ortools' && getActiveSession() === session
+                if (session.routeCalculationId === calculationId
+                  && yandexTrafficEnabled === trafficEnabledAtRequest
+                  && globalEngineMode === 'ortools' && getActiveSession() === session
                   && (session.transportMode || globalTransportMode) === modeAtRequest) {
                 session.solution = ortoolsRes.solution;
                 session.baseline = ortoolsRes.baseline;
