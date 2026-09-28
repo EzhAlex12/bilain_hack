@@ -163,6 +163,83 @@ def test_district_tables_match():
     assert js == {k: tuple(v) for k, v in solver.DISTRICT_COORDS.items()}
 
 
+def test_traffic_default_matches_javascript():
+    """Умолчание учёта пробок обязано совпадать: иначе браузер и /api/upload
+    считают один и тот же файл по-разному, и цифры из консоли несравнимы с экраном."""
+    html = open(HTML, encoding="utf-8").read()
+
+    m = re.search(r"let yandexTrafficEnabled = (true|false);", html)
+    assert m, "в index.html не найдено объявление yandexTrafficEnabled"
+    js_default = m.group(1) == "true"
+    assert js_default == solver.TRAFFIC_ENABLED_DEFAULT, (
+        f"умолчание разошлось: index.html={js_default}, "
+        f"TRAFFIC_ENABLED_DEFAULT={solver.TRAFFIC_ENABLED_DEFAULT}"
+    )
+
+
+def test_traffic_lon_scale_matches_javascript():
+    """Масштаб долготы — литерал по обе стороны, сверяем побитово."""
+    html = open(HTML, encoding="utf-8").read()
+
+    m = re.search(r"const MOSCOW_LON_SCALE = ([\d.]+);", html)
+    assert m, "в index.html нет MOSCOW_LON_SCALE"
+    assert float(m.group(1)) == solver.MOSCOW_LON_SCALE, (
+        f"масштаб долготы разошёлся: {m.group(1)} против {solver.MOSCOW_LON_SCALE}"
+    )
+
+
+def test_traffic_multiplier_matches_javascript():
+    """k_traffic в index.html обязан совпадать с yandex_traffic_multiplier до последнего знака.
+
+    Округление тут неочевидное: Python повторяет Math.round через floor(x*100+0.5),
+    и любая правка профиля легко расходит движки на 0.01. На таком расхождении
+    план в браузере и план с бэкенда разъезжаются молча.
+    """
+    if not NODE:
+        pytest.skip("node не установлен")
+
+    points = [
+        (55.7558, 37.6173),   # центр
+        (55.70, 37.80),       # восток, Кузьминки
+        (55.60, 37.74),       # юг, Братеево
+        (55.90, 37.57),       # север, Лианозово
+        (55.75, 37.40),       # запад
+    ]
+    cases = []
+    for time_min in range(8 * 60, 22 * 60 + 1, 7):
+        for transport in ("car", "foot", "bicycle", "transit"):
+            for a in points:
+                for b in points:
+                    if a != b:
+                        cases.append([time_min, list(a), list(b), transport])
+
+    src = "\n".join([
+        _js_fragment(r"const MOSCOW_LON_SCALE = [\d.]+;"),
+        _js_fragment(r"const YANDEX_HOURLY_SCORE = \{.*?\n    \};"),
+        _js_fragment(r"function getYandexTrafficScore\(timeMin\) \{.*?\n    \}"),
+        _js_fragment(r"function getYandexTrafficMultiplier\(timeMin, c1, c2, transport\) \{.*?\n    \}"),
+    ]) + f"""
+// в тесте профиль считается всегда: умолчание проверяет отдельный тест
+let yandexTrafficEnabled = true;
+const cases = {json.dumps(cases)};
+console.log(JSON.stringify(cases.map(([t, a, b, tr]) => getYandexTrafficMultiplier(t, a, b, tr))));
+"""
+    js_values = _run_node(src)
+    py_values = [
+        solver.yandex_traffic_multiplier(t, tuple(a), tuple(b), tr)
+        for t, a, b, tr in cases
+    ]
+    assert len(js_values) == len(cases)
+
+    mismatches = [
+        (c, j, p) for c, j, p in zip(cases, js_values, py_values) if j != p
+    ]
+    assert not mismatches, (
+        f"k_traffic разошёлся в {len(mismatches)} из {len(cases)} кейсов, "
+        f"первый: время={mismatches[0][0][0]} мин, js={mismatches[0][1]}, py={mismatches[0][2]}"
+    )
+
+
 if __name__ == "__main__":
     print("=" * 70)
     print("ТЕСТЫ СОГЛАСОВАННОСТИ ФРОНТЕНДА И БЭКЕНДА")

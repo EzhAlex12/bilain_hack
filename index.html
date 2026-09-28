@@ -1068,16 +1068,16 @@
             <span>🚦 Пробки Москвы (Яндекс.Карты):</span>
             <span class="chevron collapsed" id="trafficChevron">▼</span>
           </div>
-          <button id="btnTrafficToggle" onclick="event.stopPropagation(); toggleYandexTraffic()" style="font-size:11px; font-weight:700; padding:4px 10px; border-radius:14px; border:none; cursor:pointer; background:#2E7D32; color:#FFF;" title="Включить/выключить динамический учет пробок Яндекса">
-            ✅ ВКЛ
+          <button id="btnTrafficToggle" onclick="event.stopPropagation(); toggleYandexTraffic()" style="font-size:11px; font-weight:700; padding:4px 10px; border-radius:14px; border:none; cursor:pointer; background:#757575; color:#FFF;" title="Включить/выключить динамический учет пробок Яндекса">
+            ⚪ ВЫКЛ
           </button>
         </div>
         <div class="collapsible-body collapsed" id="trafficBody">
           <div style="margin-top:8px;">
-            <div id="trafficInfoCard" style="background:#F9FAFB; border-radius:6px; padding:8px 10px; font-size:11px; color:#444; border-left:3px solid #2E7D32;">
+            <div id="trafficInfoCard" style="background:#F9FAFB; border-radius:6px; padding:8px 10px; font-size:11px; color:#444; border-left:3px solid #757575;">
               <div style="display:flex; justify-content:space-between; font-weight:700; margin-bottom:3px;">
-                <span id="trafficCurrentTitle">Москва: Динамический профиль</span>
-                <span id="trafficCurrentScore" style="color:#C62828;">Активен (до 8.2 б.)</span>
+                <span id="trafficCurrentTitle">Режим свободных дорог</span>
+                <span id="trafficCurrentScore" style="color:#757575;">1.0 балл</span>
               </div>
               <div id="trafficCurrentDesc" style="color:#666; font-size:10.5px; line-height:1.35;">
                 Почасовая калибровка на исследовании Яндекс.Пробок (радиалы ВАО/ЮВАО до +75%). Пешеходы и метро — иммунитет 1.0.
@@ -1602,7 +1602,14 @@
     // МОДЕЛЬ ПРОБОК МОСКВЫ (ИССЛЕДОВАНИЕ ЯНДЕКС.ПРОБОК 2014)
     // https://yandex.ru/company/researches/2014/ya_traffic_msk_2014
     // =========================================================================
-    let yandexTrafficEnabled = true; // Активно по умолчанию!
+    // Умолчание общее с бэкендом: vrptw_4pass_solver.TRAFFIC_ENABLED_DEFAULT.
+    // Меняется только вместе с ним, иначе автономный режим в браузере и /api/upload
+    // посчитают один и тот же файл по-разному (сторожит tests/test_frontend_parity.py).
+    let yandexTrafficEnabled = false;
+
+    // Зеркало MOSCOW_LON_SCALE из vrptw_4pass_solver.py = cos(55.7558 град).
+    // Литерал, а не Math.cos: реализации cos() в V8 и в libm совпадают не всегда.
+    const MOSCOW_LON_SCALE = 0.5627212498780115;
 
     const YANDEX_HOURLY_SCORE = {
       6: 1.5, 7: 3.2, 8: 6.8, 9: 7.2, 10: 5.6,
@@ -1633,8 +1640,9 @@
 
       if (c1 && c2) {
         const cLat = 55.7558, cLon = 37.6173; // Центр Москвы
-        const dFromCenter = Math.pow(c1[0] - cLat, 2) + Math.pow(c1[1] - cLon, 2);
-        const dToCenter = Math.pow(c2[0] - cLat, 2) + Math.pow(c2[1] - cLon, 2);
+        // Долгота масштабируется: без этого плечи «на восток» считались ближе к центру
+        const dFromCenter = Math.pow(c1[0] - cLat, 2) + Math.pow((c1[1] - cLon) * MOSCOW_LON_SCALE, 2);
+        const dToCenter = Math.pow(c2[0] - cLat, 2) + Math.pow((c2[1] - cLon) * MOSCOW_LON_SCALE, 2);
         const isToCenter = dToCenter < dFromCenter;
         const isFromCenter = dToCenter > dFromCenter;
 
@@ -1673,8 +1681,10 @@
       return baseTime;
     }
 
-    async function toggleYandexTraffic() {
-      yandexTrafficEnabled = !yandexTrafficEnabled;
+    // Отрисовка состояния тумблера. Вынесена из toggleYandexTraffic, чтобы стартовый
+    // вид кнопки и карточки брался из yandexTrafficEnabled, а не из разметки: раньше
+    // разметка была зашита в «ВКЛ» и разъезжалась с флагом при смене умолчания.
+    function renderTrafficToggle() {
       const btn = document.getElementById('btnTrafficToggle');
       const card = document.getElementById('trafficInfoCard');
       const title = document.getElementById('trafficCurrentTitle');
@@ -1697,6 +1707,11 @@
       }
 
       updateTrafficBadge();
+    }
+
+    async function toggleYandexTraffic() {
+      yandexTrafficEnabled = !yandexTrafficEnabled;
+      renderTrafficToggle();
 
       const session = typeof getActiveSession === 'function' ? getActiveSession() : null;
       if (session && session.csvInput) {
@@ -4155,7 +4170,10 @@
       if (!badge) return;
 
       const cfg = getTransportConfig(globalTransportMode);
-      if (cfg.ignoreTraffic) {
+      if (!yandexTrafficEnabled) {
+        badge.className = 'traffic-indicator-badge free';
+        badge.innerText = '🚦 ' + globalRoutingTime + ': учёт пробок выключен';
+      } else if (cfg.ignoreTraffic) {
         badge.className = 'traffic-indicator-badge free';
         badge.innerText = '🚦 ' + globalRoutingTime + ': ' + cfg.icon + ' Без заторов (0% задержек)';
       } else {
@@ -4365,6 +4383,7 @@
 
 
     window.onload = async function() {
+      renderTrafficToggle();
       renderTabs();
       renderActiveSession();
 

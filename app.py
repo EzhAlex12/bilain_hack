@@ -456,7 +456,9 @@ class Handler(BaseHTTPRequestHandler):
                 # и перетирал бы им результат нажатия кнопки.
                 transport_mode = (parse_qs(parsed.query).get("transport", ["mixed"])[0] or "mixed").strip()
                 query = parse_qs(parsed.query)
-                traffic_enabled = query.get("traffic", ["0"])[0].lower() in ("1", "true", "on")
+                # Умолчание одно на весь проект и живёт в солвере
+                default_traffic = "1" if solver.TRAFFIC_ENABLED_DEFAULT else "0"
+                traffic_enabled = query.get("traffic", [default_traffic])[0].lower() in ("1", "true", "on")
                 try:
                     traffic_time_min = int(query.get("traffic_time", ["540"])[0])
                 except ValueError:

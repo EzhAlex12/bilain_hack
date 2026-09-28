@@ -44,6 +44,15 @@ try:
 except ImportError:
     HAS_ORTOOLS = False
 
+# numpy ускоряет построение матрицы расстояний в сотню раз, но не обязателен:
+# без него distance_matrix_km возвращает None и матрица считается построчно.
+try:
+    import numpy as _np
+    HAS_NUMPY = True
+except ImportError:
+    _np = None
+    HAS_NUMPY = False
+
 
 # ======================================================================================
 # 1. Официальные нормативы трудоемкости и параметры транспорта
@@ -97,6 +106,11 @@ TRANSPORT_CONFIG = {
         "icon": "🚶",
     },
 }
+
+# Единое умолчание учёта пробок для всех входов: солвера, app.py и index.html.
+# index.html обязан повторять его в yandexTrafficEnabled, это сторожит
+# test_traffic_default_matches_javascript в tests/test_frontend_parity.py.
+TRAFFIC_ENABLED_DEFAULT = False
 
 AVG_SPEED_KMH = {k: v["speed_kmh"] for k, v in TRANSPORT_CONFIG.items()}
 WINDING_FACTORS = {k: v["winding_factor"] for k, v in TRANSPORT_CONFIG.items()}
@@ -208,7 +222,7 @@ class Engineer:
     skills: Set[str] = field(default_factory=lambda: {"connection", "extra_order", "repair", "local_repair"})
     equipment_capacity: int = 30
     region: str = MOSCOW_REGION     # бригада работает только внутри своего региона
-    traffic_enabled: bool = False
+    traffic_enabled: bool = TRAFFIC_ENABLED_DEFAULT
     traffic_time_min: int = 540
 
 
@@ -391,12 +405,91 @@ def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, transpo
     return round(haversine_km(lat1, lon1, lat2, lon2) * winding_factor(transport), 2)
 
 
+def distance_matrix_km(points: List[Tuple[float, float]], transport: str):
+    """
+    Матрица расстояний (км) для всех пар points — ровно те же числа, что даёт
+    road_distance_km по одному плечу, но посчитанные матрично.
+
+    Зачем: road_distance_km зовётся 4*N^2 раз (по разу на каждый вид транспорта),
+    и на 3000 заявок это 100 секунд и 1.3 ГБ. Основа — haversine — от транспорта
+    не зависит, её достаточно посчитать один раз, а виды транспорта получаются
+    умножением на свой коэффициент извилистости.
+
+    Порядок источников повторяет road_distance_km: сначала приближение по прямой,
+    поверх него плечи из графа, и в самом конце обнуляются пары совпадающих точек
+    (в road_distance_km проверка на равенство координат стоит до обращения к кешу).
+
+    Возвращает numpy-матрицу либо None, если numpy не установлен — тогда
+    вызывающий считает построчно, как раньше.
+    """
+    n = len(points)
+    if not HAS_NUMPY or n < 2:
+        return None
+
+    lat_deg = _np.array([p[0] for p in points], dtype=float)
+    lon_deg = _np.array([p[1] for p in points], dtype=float)
+    lat = _np.radians(lat_deg)
+    lon = _np.radians(lon_deg)
+    dphi = lat[:, None] - lat[None, :]
+    dlam = lon[:, None] - lon[None, :]
+    a = (_np.sin(dphi / 2.0) ** 2
+         + _np.cos(lat)[:, None] * _np.cos(lat)[None, :] * _np.sin(dlam / 2.0) ** 2)
+    km = _np.round(2 * 6371.0 * _np.arcsin(_np.sqrt(_np.clip(a, 0.0, 1.0)))
+                   * winding_factor(transport), 2)
+
+    # Плечи из графа накладываем поверх. Идём по кешу, а не по парам точек:
+    # в кеше около сотни тысяч записей, а пар при 3000 заявках — девять миллионов.
+    by_key: Dict[str, List[int]] = {}
+    for i in range(n):
+        by_key.setdefault("%.4f,%.4f" % (points[i][0], points[i][1]), []).append(i)
+
+    filled = _np.zeros((n, n), dtype=bool)
+    derived = _np.zeros((n, n), dtype=bool)
+
+    def apply(want_transport: str, scale: float, mark_derived: bool) -> None:
+        suffix = "_" + want_transport
+        for cache_key, value in _OSRM_CACHE.items():
+            if not cache_key.endswith(suffix):
+                continue
+            head = cache_key[: -len(suffix)]
+            a_key, _, b_key = head.partition("_")
+            rows = by_key.get(a_key)
+            cols = by_key.get(b_key)
+            if not rows or not cols:
+                continue
+            val = value if scale == 1.0 else round(value * scale, 2)
+            for i in rows:
+                for j in cols:
+                    if not filled[i, j]:
+                        km[i, j] = val
+                        filled[i, j] = True
+                        if mark_derived:
+                            derived[i, j] = True
+
+    apply(transport, 1.0, False)
+    if transport == "transit":
+        # Отдельного transit-графа у OSRM нет: берём автомобильное плечо и масштабируем
+        apply("car", TRANSIT_FROM_CAR, True)
+
+    same = (lat_deg[:, None] == lat_deg[None, :]) & (lon_deg[:, None] == lon_deg[None, :])
+    km[same] = 0.0
+
+    # leg_stats должен остаться сопоставимым с построчным расчётом
+    graph_cnt = int(_np.count_nonzero(filled & ~derived & ~same))
+    derived_cnt = int(_np.count_nonzero(derived & ~same))
+    _LEG_STATS["graph"] += graph_cnt
+    _LEG_STATS["derived"] += derived_cnt
+    _LEG_STATS["approx"] += int(km.size - _np.count_nonzero(same)) - graph_cnt - derived_cnt
+    return km
+
+
 OSRM_TABLE_URLS = {
     "car": "https://router.project-osrm.org/table/v1/driving/",
     "foot": "https://routing.openstreetmap.de/routed-foot/table/v1/driving/",
     "bicycle": "https://routing.openstreetmap.de/routed-bike/table/v1/driving/",
 }
 MAX_TABLE_COORDS = 100          # лимит координат в одном запросе table у публичных серверов OSRM
+MAX_PREFETCH_REQUESTS = 200     # потолок числа запросов к публичным OSRM за один досчёт
 OSRM_NETWORK_ENABLED = True     # сбрасывается в False после первой сетевой ошибки за процесс
 
 
@@ -485,10 +578,32 @@ def prefetch_osrm(
     """
     global OSRM_NETWORK_ENABLED
     transports = list(transports or ("car", "foot", "bicycle"))
+    seen = set()
     uniq: List[Tuple[float, float]] = []
     for p in points:
-        if p not in uniq:
+        if p not in seen:
+            seen.add(p)
             uniq.append(p)
+
+    # Бюджет на сеть. /table у публичных OSRM и FOSSGIS принимает не больше
+    # MAX_TABLE_COORDS координат, поэтому матрица режется на блоки и число запросов
+    # растёт квадратично: 660 точек — уже 588 запросов, 3000 точек — одиннадцать
+    # тысяч. Демо-серверы отвечают на такой залп 429, а загрузка файла висит без
+    # признаков жизни. Сверх бюджета честно считаем приближённо: доля плеч, взятых
+    # не из графа, видна в leg_stats() и выводится в консоли и в API.
+    chunks = -(-len(uniq) // (MAX_TABLE_COORDS // 2))
+    graph_transports = {("car" if t == "transit" else t) for t in transports}
+    planned = chunks * chunks * len(graph_transports & set(OSRM_TABLE_URLS))
+    if planned > MAX_PREFETCH_REQUESTS:
+        return {
+            "points": len(uniq),
+            "missing": {},
+            "fetched": {},
+            "errors": {},
+            "status": (f"пропущен: {len(uniq)} точек потребовали бы {planned} запросов "
+                       f"к публичному OSRM при лимите {MAX_PREFETCH_REQUESTS}; "
+                       f"расстояния считаются приближённо"),
+        }
 
     missing = missing_osrm_pairs(uniq, transports)
     result: Dict[str, Any] = {"points": len(uniq), "missing": missing, "fetched": {}, "errors": {}}
@@ -547,6 +662,11 @@ def polyline_length_km(points: list[tuple[float, float]]) -> float:
     )
 
 
+# cos(55.7558 град) — градус долготы на широте Москвы почти вдвое короче градуса
+# широты. Записан литералом, а не через math.cos: JS и Python обязаны получить
+# ровно одно и то же число, а реализации cos() в libm и в V8 совпадают не всегда.
+MOSCOW_LON_SCALE = 0.5627212498780115
+
 YANDEX_HOURLY_SCORE = {
     6: 1.5, 7: 3.2, 8: 6.8, 9: 7.2, 10: 5.6,
     11: 4.2, 12: 4.0, 13: 4.1, 14: 4.3, 15: 4.8,
@@ -574,8 +694,10 @@ def yandex_traffic_multiplier(
     multiplier = 1.0 + max(0.0, score - 1.5) * 0.095
 
     center = (55.7558, 37.6173)
-    start_distance = (start[0] - center[0]) ** 2 + (start[1] - center[1]) ** 2
-    end_distance = (end[0] - center[0]) ** 2 + (end[1] - center[1]) ** 2
+    # Без масштабирования долготы плечи «на восток» считались ближе к центру,
+    # чем они есть, и утренняя/вечерняя асимметрия навешивалась не на те плечи.
+    start_distance = (start[0] - center[0]) ** 2 + ((start[1] - center[1]) * MOSCOW_LON_SCALE) ** 2
+    end_distance = (end[0] - center[0]) ** 2 + ((end[1] - center[1]) * MOSCOW_LON_SCALE) ** 2
     is_to_center = end_distance < start_distance
     is_from_center = end_distance > start_distance
 
@@ -1301,31 +1423,56 @@ def solve_vrptw_ortools_routing(
     points = depot_points + [(r.lat, r.lon) for r in requests]
     dist_m: Dict[str, List[List[int]]] = {}
     transit_min: Dict[str, List[List[int]]] = {}
+    durations = [0] * D + [r.work_duration_min for r in requests]
+    # Время, на которое оценивается плечо, выходящее ИЗ узла. Транзитный колбэк
+    # OR-Tools обязан быть чистой функцией от пары узлов: прочитать из него реальное
+    # время прибытия (CumulVar) нельзя. Но визит обязан уложиться в окно заявки,
+    # значит выезд известен заранее с точностью до окна — это честнее, чем один
+    # замороженный срез на traffic_time_min, растянутый на весь день.
+    row_times = [min(e.shift_start_min for e in engineers)] * D + [
+        (r.window_start_min + r.window_end_min) // 2 for r in requests
+    ]
+
     for transport in {e.transport for e in engineers}:
         traffic_engineer = next(e for e in engineers if e.transport == transport)
+        km_matrix = distance_matrix_km(points, transport)
+        speed = AVG_SPEED_KMH.get(transport, 30.0)
+
+        if km_matrix is not None and not traffic_engineer.traffic_enabled:
+            # Быстрый путь: без пробок время в пути — чистая функция расстояния,
+            # значит вся матрица считается одной векторной операцией
+            dist_m[transport] = _np.rint(km_matrix * 1000.0).astype(_np.int64).tolist()
+            minutes = _np.maximum(1, _np.rint(km_matrix / speed * 60.0)).astype(_np.int64)
+            minutes += _np.array(durations, dtype=_np.int64)[:, None]
+            transit_min[transport] = minutes.tolist()
+            continue
+
         d_rows, t_rows = [], []
         for n1, c1 in enumerate(points):
-            duration = 0 if n1 < D else requests[n1 - D].work_duration_min
-            d_row, t_row = [], []
-            for c2 in points:
-                d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
-                d_row.append(int(round(d * 1000)))
-                t_row.append(travel_time_min(
-                    d, transport, traffic_engineer.traffic_enabled,
-                    traffic_engineer.traffic_time_min, c1, c2,
-                ) + duration)
-            d_rows.append(d_row)
-            t_rows.append(t_row)
+            duration = durations[n1]
+            row_time = row_times[n1]
+            if km_matrix is None:
+                km_row = [road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
+                          for c2 in points]
+            else:
+                km_row = km_matrix[n1].tolist()
+            d_rows.append([int(round(d * 1000)) for d in km_row])
+            t_rows.append([travel_time_min(
+                d, transport, traffic_engineer.traffic_enabled, row_time, c1, c2,
+            ) + duration for d, c2 in zip(km_row, points)])
         dist_m[transport] = d_rows
         transit_min[transport] = t_rows
 
     # 1. Расстояния по видам транспорта
+    # RegisterTransitMatrix отдаёт матрицу в C++ целиком. Раньше тут висел
+    # питоновский колбэк, и OR-Tools дёргал его на каждое ребро при каждой
+    # перестановке — миллионы переходов через границу C++/Python съедали
+    # отведённый лимит поиска.
+    dist_cb_of = {}
     for k, eng in enumerate(engineers):
-        def make_dist_cb(matrix):
-            def cb(from_idx, to_idx):
-                return matrix[manager.IndexToNode(from_idx)][manager.IndexToNode(to_idx)]
-            return cb
-        cb_idx = routing.RegisterTransitCallback(make_dist_cb(dist_m[eng.transport]))
+        if eng.transport not in dist_cb_of:
+            dist_cb_of[eng.transport] = routing.RegisterTransitMatrix(dist_m[eng.transport])
+        cb_idx = dist_cb_of[eng.transport]
         routing.SetArcCostEvaluatorOfVehicle(cb_idx, k)
         routing.SetFixedCostOfVehicle(100_000, k)
 
@@ -1340,13 +1487,17 @@ def solve_vrptw_ortools_routing(
 
     # 3. Время
     time_callbacks = []
-    for k, eng in enumerate(engineers):
-        def make_time_cb(matrix):
-            def cb(from_idx, to_idx):
-                return matrix[manager.IndexToNode(from_idx)][manager.IndexToNode(to_idx)]
-            return cb
-        t_cb_idx = routing.RegisterTransitCallback(make_time_cb(transit_min[eng.transport]))
-        time_callbacks.append(t_cb_idx)
+    time_cb_of = {}
+    for eng in engineers:
+        if eng.transport not in time_cb_of:
+            time_cb_of[eng.transport] = routing.RegisterTransitMatrix(transit_min[eng.transport])
+        time_callbacks.append(time_cb_of[eng.transport])
+
+    # RegisterTransitMatrix уже скопировала числа в C++, питоновские списки больше
+    # никто не читает. На 3000 заявок это две с лишним тысячи мегабайт, которые
+    # иначе провисели бы до конца поиска рядом с копией решателя.
+    dist_m.clear()
+    transit_min.clear()
 
     routing.AddDimensionWithVehicleTransits(time_callbacks, 1440, 1440, False, "Time")
     time_dim = routing.GetDimensionOrDie("Time")
