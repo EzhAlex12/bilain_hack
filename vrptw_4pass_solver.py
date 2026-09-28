@@ -32,6 +32,8 @@ import os
 import random
 import re
 import sys
+import time
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -136,6 +138,18 @@ DISTRICT_COORDS = {
     "Бирюлево Западное": (55.5841, 37.6455),
     "Братеево": (55.6325, 37.7656),
     "Царицыно": (55.6275, 37.6631),
+    # Написания через дефис и районы, которые есть в index.html:
+    # таблицы районов на бэкенде и во фронтенде должны совпадать один в один
+    "Орехово-Борисово Южное": (55.6082, 37.7268),
+    "Орехово-Борисово Северное": (55.6208, 37.7088),
+    "Москворечье-Сабурово": (55.6486, 37.6828),
+    "Нагатино-Садовники": (55.6775, 37.6495),
+    "Люблино": (55.6766, 37.7618),
+    "Марьино": (55.65, 37.74),
+    "Печатники": (55.7, 37.71),
+    "Чертаново Северное": (55.63, 37.6),
+    "Чертаново Центральное": (55.61, 37.6),
+    "Чертаново Южное": (55.59, 37.6),
 }
 
 MOSCOW_CENTER = (55.751244, 37.618423)
@@ -144,6 +158,21 @@ MOSCOW_CENTER = (55.751244, 37.618423)
 # ======================================================================================
 # 2. Модели данных
 # ======================================================================================
+
+SUBURB_DISTRICTS = ("Кашира", "Ступино", "Домодедово")
+MOSCOW_REGION = "moscow"
+
+
+def region_of_district(district: str) -> str:
+    """
+    Регион, внутри которого замкнуты маршруты.
+
+    По ТЗ инженеры удалённых городов Подмосковья базируются прямо в этих городах
+    («старт из дома»), и рейсы Москва <-> Кашира строить запрещено. Поэтому каждый
+    город Подмосковья — отдельный регион со своим пулом бригад и своей точкой старта.
+    """
+    return district if district in SUBURB_DISTRICTS else MOSCOW_REGION
+
 
 @dataclass
 class Request:
@@ -157,10 +186,15 @@ class Request:
     address: str
     is_gigabit: bool = False
     equipment_demand: int = 1
+    geo_source: str = "approx"   # "osm" — реальный адрес, "approx" — размещение по району
 
     @property
     def work_duration_min(self) -> int:
         return WORK_DURATION_MIN.get(self.req_type, 60)
+
+    @property
+    def region(self) -> str:
+        return region_of_district(self.district)
 
 
 @dataclass
@@ -173,6 +207,7 @@ class Engineer:
     transport: str = "car"           # "car" | "transit" | "bicycle" | "foot"
     skills: Set[str] = field(default_factory=lambda: {"connection", "extra_order", "repair", "local_repair"})
     equipment_capacity: int = 30
+    region: str = MOSCOW_REGION     # бригада работает только внутри своего региона
 
 
 @dataclass
@@ -253,80 +288,251 @@ def osrm_cache_key(lat1: float, lon1: float, lat2: float, lon2: float, transport
     return f"{lat1:.4f},{lon1:.4f}_{lat2:.4f},{lon2:.4f}_{transport}"
 
 
+# Доля плеч, посчитанных не по дорожному графу, — нужна и для честной пометки в UI
+_LEG_STATS = {"graph": 0, "derived": 0, "approx": 0}
+_CALIBRATED_WINDING: Dict[str, float] = {}
+
+TRANSIT_FROM_CAR = (
+    TRANSPORT_CONFIG["transit"]["winding_factor"] / TRANSPORT_CONFIG["car"]["winding_factor"]
+)
+
+
+def reset_leg_stats() -> None:
+    for k in _LEG_STATS:
+        _LEG_STATS[k] = 0
+
+
+def leg_stats() -> Dict[str, Any]:
+    """Сколько плеч посчитано по графу OSM, выведено из него и приближено."""
+    total = sum(_LEG_STATS.values())
+    out = dict(_LEG_STATS)
+    out["total"] = total
+    out["graph_share"] = round((_LEG_STATS["graph"] + _LEG_STATS["derived"]) / total, 4) if total else 0.0
+    return out
+
+
+def calibrate_winding_factors(min_samples: int = 200) -> Dict[str, float]:
+    """
+    Пересчитывает коэффициенты извилистости по фактическому содержимому кеша OSRM:
+    коэффициент = медиана отношения (расстояние по графу / расстояние по прямой).
+
+    Константы в TRANSPORT_CONFIG подобраны вручную и систематически занижены
+    (для авто реальная медиана около 1.44 против заявленных 1.35), поэтому
+    приближение для точек вне графа калибруется по самому графу.
+    """
+    global _CALIBRATED_WINDING
+    samples: Dict[str, List[float]] = {}
+    for key, km in _OSRM_CACHE.items():
+        try:
+            a, b, transport = key.split("_")
+            lat1, lon1 = (float(x) for x in a.split(","))
+            lat2, lon2 = (float(x) for x in b.split(","))
+        except (ValueError, TypeError):
+            continue
+        air = haversine_km(lat1, lon1, lat2, lon2)
+        if air < 0.05 or km <= 0:
+            continue
+        samples.setdefault(transport, []).append(km / air)
+
+    calibrated: Dict[str, float] = {}
+    for transport, values in samples.items():
+        if len(values) < min_samples:
+            continue
+        values.sort()
+        calibrated[transport] = round(values[len(values) // 2], 3)
+
+    if "transit" not in calibrated and "car" in calibrated:
+        calibrated["transit"] = round(calibrated["car"] * TRANSIT_FROM_CAR, 3)
+
+    _CALIBRATED_WINDING = calibrated
+    return calibrated
+
+
+def winding_factor(transport: str) -> float:
+    """Коэффициент извилистости: калиброванный по графу, иначе — из конфигурации транспорта."""
+    if transport in _CALIBRATED_WINDING:
+        return _CALIBRATED_WINDING[transport]
+    return WINDING_FACTORS.get(transport, 1.35)
+
+
+calibrate_winding_factors()
+
+
 def road_distance_km(lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car") -> float:
     """
-    Расчет реального расстояния с учетом типа передвижения:
-    - Пешеходы: пешеходный граф OSM (тротуары, переходы, дворы и сквозные арки), иначе коэффициент 1.10;
-    - Велосипедисты: велосипедный граф OSM (велодорожки, тротуары, дворовые зоны), иначе коэффициент 1.15;
-    - Общественный транспорт: метро + НГПТ (коэффициент 1.25);
-    - Автомобили: строгая автодорожная сеть с разворотами и развязками (коэффициент 1.35).
-    Точные расстояния по графам лежат в .osrm_cache.json (см. build_osrm_cache.py).
+    Расстояние между двумя точками.
+
+    Источники по убыванию точности:
+    1. graph   — длина маршрута по дорожному/пешеходному/велосипедному графу OSM
+                 (.osrm_cache.json, наполняется build_osrm_cache.py и prefetch_osrm);
+    2. derived — общественный транспорт: автомобильное расстояние по графу,
+                 масштабированное к профилю НГПТ (отдельного transit-графа у OSRM нет);
+    3. approx  — точки нет в графе: расстояние по прямой, умноженное на коэффициент
+                 извилистости, откалиброванный по самому графу. Плечо помечается как
+                 приближённое и попадает в leg_stats().
     """
     if (lat1, lon1) == (lat2, lon2):
         return 0.0
 
     key = osrm_cache_key(lat1, lon1, lat2, lon2, transport)
     if key in _OSRM_CACHE:
+        _LEG_STATS["graph"] += 1
         return _OSRM_CACHE[key]
 
-    # Общественный транспорт идет по улично-дорожной сети — масштабируем автомобильное OSRM-расстояние.
-    # Пешеходов и велосипедистов из автомобильного графа НЕ выводим: он навязывает объезды
-    # (односторонние улицы, развязки), которые пешеход срезает через переходы и дворы.
     if transport == "transit":
         car_key = osrm_cache_key(lat1, lon1, lat2, lon2, "car")
         if car_key in _OSRM_CACHE:
-            return round(_OSRM_CACHE[car_key] * (1.25 / 1.35), 2)
+            _LEG_STATS["derived"] += 1
+            return round(_OSRM_CACHE[car_key] * TRANSIT_FROM_CAR, 2)
 
-    # Точный расчет по геометрии извилистости точек уличной сети для заданного транспорта
-    pts = interpolate_street_path(lat1, lon1, lat2, lon2, transport)
-    return round(polyline_length_km(pts), 2)
+    _LEG_STATS["approx"] += 1
+    return round(haversine_km(lat1, lon1, lat2, lon2) * winding_factor(transport), 2)
 
 
-def interpolate_street_path(
-    lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car"
-) -> list[tuple[float, float]]:
-    """Строит детальную траекторию точек с учетом геометрии улиц и извилистости для любого вида транспорта."""
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    if abs(dlat) < 1e-6 and abs(dlon) < 1e-6:
-        return [(lat1, lon1), (lat2, lon2)]
+OSRM_TABLE_URLS = {
+    "car": "https://router.project-osrm.org/table/v1/driving/",
+    "foot": "https://routing.openstreetmap.de/routed-foot/table/v1/driving/",
+    "bicycle": "https://routing.openstreetmap.de/routed-bike/table/v1/driving/",
+}
+MAX_TABLE_COORDS = 100          # лимит координат в одном запросе table у публичных серверов OSRM
+OSRM_NETWORK_ENABLED = True     # сбрасывается в False после первой сетевой ошибки за процесс
 
-    cos_lat = math.cos(math.radians((lat1 + lat2) / 2.0))
-    v_lat = -dlon * cos_lat
-    v_lon = dlat / cos_lat if abs(cos_lat) > 1e-4 else dlat
-    v_norm = math.sqrt(v_lat ** 2 + (v_lon * cos_lat) ** 2)
-    if v_norm < 1e-9:
-        return [(lat1, lon1), (lat2, lon2)]
 
-    u_lat = v_lat / v_norm
-    u_lon = v_lon / v_norm
-    air_deg = math.sqrt(dlat ** 2 + (dlon * cos_lat) ** 2)
+def osrm_table_requests(points: List[Tuple[float, float]], transport: str):
+    """Разбивает матрицу points x points на запросы /table (источники и назначения блоками)."""
+    base = OSRM_TABLE_URLS[transport]
+    if len(points) <= MAX_TABLE_COORDS:
+        blocks = [(list(range(len(points))), list(range(len(points))))]
+    else:
+        idx = list(range(len(points)))
+        half = MAX_TABLE_COORDS // 2
+        chunks = [idx[i:i + half] for i in range(0, len(idx), half)]
+        blocks = [(a, b) for a in chunks for b in chunks]
 
-    if transport in ("foot", "pedestrian"):
-        # Пешеходная траектория: тротуары, переходы и сквозные арки домов
-        amp = air_deg * 0.10
-        p1 = (lat1 + dlat * 0.40 + u_lat * amp, lon1 + dlon * 0.40 + u_lon * amp)
-        p2 = (lat1 + dlat * 0.60 - u_lat * amp * 0.8, lon1 + dlon * 0.60 - u_lon * amp * 0.8)
-        return [(lat1, lon1), p1, p2, (lat2, lon2)]
-    elif transport == "bicycle":
-        # Велосипедная траектория: велополосы, парковые дорожки, дворы
-        amp = air_deg * 0.13
-        p1 = (lat1 + dlat * 0.35 + u_lat * amp, lon1 + dlon * 0.35 + u_lon * amp)
-        p2 = (lat1 + dlat * 0.65 - u_lat * amp, lon1 + dlon * 0.65 - u_lon * amp)
-        return [(lat1, lon1), p1, p2, (lat2, lon2)]
-    elif transport == "transit":
-        # Общественный транспорт: подход к остановке, магистральный коридор, подход к цели
-        amp = air_deg * 0.22
-        p1 = (lat1 + dlat * 0.30 + u_lat * amp, lon1 + dlon * 0.30 + u_lon * amp)
-        p2 = (lat1 + dlat * 0.70 - u_lat * amp * 0.6, lon1 + dlon * 0.70 - u_lon * amp * 0.6)
-        return [(lat1, lon1), p1, p2, (lat2, lon2)]
-    else:  # car
-        # Автомобильная траектория: квартальная сетка улиц, перекрёстки, развороты
-        amp = air_deg * 0.23
-        p1 = (lat1 + dlat * 0.25 + u_lat * amp, lon1 + dlon * 0.25 + u_lon * amp)
-        p2 = (lat1 + dlat * 0.50, lon1 + dlon * 0.50)
-        p3 = (lat1 + dlat * 0.75 - u_lat * amp, lon1 + dlon * 0.75 - u_lon * amp)
-        return [(lat1, lon1), p1, p2, p3, (lat2, lon2)]
+    for src, dst in blocks:
+        coords_idx = src + [j for j in dst if j not in src]
+        coords = ";".join(f"{points[i][1]:.6f},{points[i][0]:.6f}" for i in coords_idx)
+        pos = {j: p for p, j in enumerate(coords_idx)}
+        query = (
+            "?annotations=distance"
+            f"&sources={';'.join(str(pos[i]) for i in src)}"
+            f"&destinations={';'.join(str(pos[j]) for j in dst)}"
+        )
+        yield base + coords + query, src, dst
+
+
+def osrm_fetch_json(url: str, timeout: int = 60) -> dict:  # noqa: D401
+    req = urllib.request.Request(url, headers={"User-Agent": "BeelineVRP/1.0 (hackathon LCT 2026)"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def fetch_osrm_matrix(points: List[Tuple[float, float]], transport: str, fetch=None,
+                      timeout: int = 60) -> Dict[str, float]:
+    """Записи кеша {ключ: км} для всех пар points по графу transport."""
+    fetch = fetch or (lambda url: osrm_fetch_json(url, timeout))
+    entries: Dict[str, float] = {}
+    for url, src, dst in osrm_table_requests(points, transport):
+        data = fetch(url)
+        if data.get("code") != "Ok":
+            raise RuntimeError(f"{transport}: OSRM ответил {data.get('code')}: {data.get('message')}")
+        for a, row in zip(src, data["distances"]):
+            for b, meters in zip(dst, row):
+                if a == b or meters is None:
+                    continue
+                p1, p2 = points[a], points[b]
+                entries[osrm_cache_key(p1[0], p1[1], p2[0], p2[1], transport)] = round(meters / 1000.0, 2)
+    return entries
+
+
+def missing_osrm_pairs(points: List[Tuple[float, float]], transports) -> Dict[str, int]:
+    """Сколько пар точек ещё не покрыто графом по каждому виду транспорта."""
+    out: Dict[str, int] = {}
+    for transport in transports:
+        graph_transport = "car" if transport == "transit" else transport
+        if graph_transport not in OSRM_TABLE_URLS:
+            continue
+        miss = 0
+        for i, p1 in enumerate(points):
+            for j, p2 in enumerate(points):
+                if i == j:
+                    continue
+                if osrm_cache_key(p1[0], p1[1], p2[0], p2[1], graph_transport) not in _OSRM_CACHE:
+                    miss += 1
+        if miss:
+            out[graph_transport] = miss
+    return out
+
+
+def prefetch_osrm(
+    points: List[Tuple[float, float]],
+    transports=None,
+    fetch=None,
+    pause_sec: float = 1.0,
+    save: bool = True,
+    quiet: bool = True,
+    timeout: int = 60,
+) -> Dict[str, Any]:
+    """
+    Досчитывает матрицы расстояний по графу для набора точек и кладёт их в кеш.
+
+    Вызывается перед решением (в том числе для загруженного пользователем CSV и для
+    новых точек аварии), чтобы на этапе поиска все плечи были попаданиями в кеш,
+    а не приближением по прямой. Без сети тихо возвращает ошибку — решение
+    продолжает считаться на приближении, и это видно в leg_stats().
+    """
+    global OSRM_NETWORK_ENABLED
+    transports = list(transports or ("car", "foot", "bicycle"))
+    uniq: List[Tuple[float, float]] = []
+    for p in points:
+        if p not in uniq:
+            uniq.append(p)
+
+    missing = missing_osrm_pairs(uniq, transports)
+    result: Dict[str, Any] = {"points": len(uniq), "missing": missing, "fetched": {}, "errors": {}}
+    if not missing:
+        result["status"] = "кеш уже полон"
+        return result
+    if not OSRM_NETWORK_ENABLED:
+        result["status"] = "сеть отключена после предыдущей ошибки"
+        return result
+
+    for graph_transport in missing:
+        try:
+            entries = fetch_osrm_matrix(uniq, graph_transport, fetch, timeout=timeout)
+            _OSRM_CACHE.update(entries)
+            result["fetched"][graph_transport] = len(entries)
+            if not quiet:
+                print(f"  OSRM {graph_transport}: получено {len(entries)} пар")
+        except Exception as e:
+            result["errors"][graph_transport] = f"{type(e).__name__}: {e}"
+            OSRM_NETWORK_ENABLED = False
+            if not quiet:
+                print(f"  OSRM {graph_transport}: недоступен ({e})")
+            break
+        time.sleep(pause_sec)
+
+    if save and result["fetched"]:
+        save_osrm_cache()
+        calibrate_winding_factors()
+    if result["fetched"] and not result["errors"]:
+        result["status"] = "ок"
+    elif result["fetched"]:
+        result["status"] = "частично: часть графов не получена"
+    else:
+        result["status"] = "сеть недоступна, расстояния считаются приближённо"
+    return result
+
+
+def distance_source(lat1: float, lon1: float, lat2: float, lon2: float, transport: str = "car") -> str:
+    """Каким способом посчитано плечо — без побочных эффектов, для пометки в UI и XAI."""
+    if (lat1, lon1) == (lat2, lon2):
+        return "graph"
+    if osrm_cache_key(lat1, lon1, lat2, lon2, transport) in _OSRM_CACHE:
+        return "graph"
+    if transport == "transit" and osrm_cache_key(lat1, lon1, lat2, lon2, "car") in _OSRM_CACHE:
+        return "derived"
+    return "approx"
 
 
 def polyline_length_km(points: list[tuple[float, float]]) -> float:
@@ -362,15 +568,121 @@ BK_TYPE_MAP = {
 }
 
 
-def geocode_district_cached(address: str, district: str) -> Tuple[float, float]:
+_GEOCODE_CACHE: Dict[str, List[float]] = {}
+_GEOCODE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geocode_cache.json")
+
+
+def load_geocode_cache() -> None:
+    """Реальные координаты адресов (geocode_addresses.py -> OSM Nominatim)."""
+    global _GEOCODE_CACHE
+    if os.path.exists(_GEOCODE_FILE):
+        try:
+            with open(_GEOCODE_FILE, "r", encoding="utf-8") as f:
+                _GEOCODE_CACHE = json.load(f)
+        except Exception:
+            _GEOCODE_CACHE = {}
+
+
+load_geocode_cache()
+
+
+def geocode_key(address: str, district: str) -> str:
+    """Ключ адреса в geocode_cache.json (общий для решателя и geocode_addresses.py)."""
+    return f"{district}||{address}"
+
+
+DEPOT_DISTRICT = "__depot__"
+
+# Офисы/склады округов. geocode_address — та же строка, что в geocode_addresses.py,
+# fallback — координаты, которые использовались, пока геокодера не было.
+DEPOTS = {
+    "yugocentr": {
+        "display": "г. Москва, проезд Симферопольский, д. 7",
+        "geocode": "Город Москва, проезд.Симферопольский, д. 7",
+        "fallback": (55.6885, 37.6181),
+        "keys": ["симферопольск", "югоцентр", "даниловск", "академическ", "котловк", "зюзино",
+                 "хамовник", "садовник", "гагаринск", "замосквореч", "нагорн"],
+    },
+    "yugovostok": {
+        "display": "г. Москва, ул Бирюлёвская, д 1с 1",
+        "geocode": "Город Москва, ул.Бирюлёвская, д. 1 стр. 1",
+        "fallback": (55.5976, 37.6690),
+        "keys": ["бирюлев", "бирюлёв", "орехово", "царицыно", "братеево", "зябликово",
+                 "кашира", "ступино", "домодедово", "юго-восток"],
+    },
+    "vostok": {
+        "display": "г. Москва, ул Юных Ленинцев, д 83с 4",
+        "geocode": "Город Москва, ул.Юных Ленинцев, д. 83 стр. 4",
+        "fallback": (55.7001, 37.7690),
+        "keys": [],
+    },
+}
+
+
+def resolve_depot(depot_address: str, district_hint: str) -> Tuple[Tuple[float, float], str, str]:
+    """
+    Определяет офис/склад округа по тексту CSV и возвращает (координаты, адрес, источник).
+    Единая точка для solution.py, app.py и фронтенда — раньше блок был скопирован дважды
+    и расходился с координатами депо в index.html.
+    """
+    scan = f"{depot_address} {district_hint}".lower()
+    chosen = "vostok"
+    for name, cfg in DEPOTS.items():
+        if any(k in scan for k in cfg["keys"]):
+            chosen = name
+            break
+    cfg = DEPOTS[chosen]
+    hit = _GEOCODE_CACHE.get(geocode_key(cfg["geocode"], DEPOT_DISTRICT))
+    if hit and len(hit) >= 2:
+        return (float(hit[0]), float(hit[1])), cfg["display"], "osm"
+    return cfg["fallback"], cfg["display"], "approx"
+
+
+def _to_int32(n: int) -> int:
+    n = int(n) & 0xFFFFFFFF
+    return n - 0x100000000 if n >= 0x80000000 else n
+
+
+def stable_hash32(text: str) -> int:
+    """
+    Точная эмуляция hashStr() из index.html — обе стороны обязаны получать
+    одинаковые координаты для одного адреса.
+
+    Тонкость JS: в ((hash << 5) - hash) + c к int32 приводится только операнд
+    сдвига, сам аккумулятор остаётся числом двойной точности и за границы
+    int32 выходит. Обрезка всего выражения даёт другой результат.
+    """
+    h = 0
+    for ch in text:
+        h = _to_int32(_to_int32(h) * 32) - h + ord(ch)
+    return abs(h)
+
+
+def geocode_address(address: str, district: str) -> Tuple[float, float, str]:
+    """
+    Координаты заявки и способ их получения.
+
+    "osm"    — реальный адрес, разрешённый геокодером (geocode_cache.json);
+    "approx" — адрес геокодером не найден: детерминированное размещение внутри района
+               (тот же алгоритм, что во фронтенде, — координаты обоих движков совпадают).
+    """
+    hit = _GEOCODE_CACHE.get(geocode_key(address, district))
+    if hit and len(hit) >= 2:
+        return float(hit[0]), float(hit[1]), "osm"
+
     center = DISTRICT_COORDS.get(district, MOSCOW_CENTER)
-    seed = int(hashlib.md5((address + district).encode("utf-8")).hexdigest()[:8], 16)
-    rnd = random.Random(seed)
-    angle = rnd.uniform(0, 2 * math.pi)
-    radius_km = rnd.uniform(0.1, 1.2)
+    seed = stable_hash32((address or "") + (district or ""))
+    angle = (seed % 628) / 100.0
+    radius_km = 0.2 + ((seed % 100) / 100.0) * 0.9
     dlat = (radius_km / 111.0) * math.cos(angle)
     dlon = (radius_km / (111.0 * math.cos(math.radians(center[0])))) * math.sin(angle)
-    return center[0] + dlat, center[1] + dlon
+    return center[0] + dlat, center[1] + dlon, "approx"
+
+
+def geocode_district_cached(address: str, district: str) -> Tuple[float, float]:
+    """Обратная совместимость: только координаты, без признака источника."""
+    lat, lon, _ = geocode_address(address, district)
+    return lat, lon
 
 
 def parse_minutes(dt_str: str) -> int:
@@ -412,7 +724,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
         address = (row.get("Адрес") or "").strip()
         district_hint = district or district_hint
 
-        lat, lon = geocode_district_cached(address, district)
+        lat, lon, geo_source = geocode_address(address, district)
         w_start = parse_minutes(row["Начало"])
         w_end = parse_minutes(row["Окончание"])
         is_gigabit = (row.get("Гигабитное подключение") or "").strip() == "Да"
@@ -430,6 +742,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
                 address=address,
                 is_gigabit=is_gigabit,
                 equipment_demand=demand,
+                geo_source=geo_source,
             )
         )
 
@@ -439,16 +752,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
         if b_name and b_name not in brigade_names:
             brigade_names.append(b_name)
 
-    scan_text = f"{depot_address} {district_hint}".lower()
-    if any(k in scan_text for k in ["симферопольск", "югоцентр", "даниловск", "академическ", "котловк", "зюзино", "хамовник", "садовник", "гагаринск", "замосквореч", "нагорн"]):
-        depot_coords = (55.6885, 37.6181)
-        depot_address = "г. Москва, проезд Симферопольский, д. 7"
-    elif any(k in scan_text for k in ["бирюлев", "бирюлёв", "орехово", "царицыно", "братеево", "зябликово", "кашира", "ступино", "домодедово", "юго-восток"]):
-        depot_coords = (55.5976, 37.6690)
-        depot_address = "г. Москва, ул Бирюлёвская, д 1с 1"
-    else:
-        depot_coords = (55.7001, 37.7690)
-        depot_address = "г. Москва, ул Юных Ленинцев, д 83с 4"
+    depot_coords, depot_address, _ = resolve_depot(depot_address, district_hint)
 
     return requests, depot_coords, depot_address, brigade_names
 
@@ -463,6 +767,7 @@ def create_engineers_pool(
     has_suburbs: bool = False,
     seed: int = 42,
     brigade_names: Optional[List[str]] = None,
+    region: str = MOSCOW_REGION,
 ) -> List[Engineer]:
     engineers: List[Engineer] = []
 
@@ -503,6 +808,7 @@ def create_engineers_pool(
         cap = TRANSPORT_CONFIG[transport]["capacity"]
         engineers.append(
             Engineer(
+                region=region,
                 id=eng_id,
                 home_lat=home[0],
                 home_lon=home[1],
@@ -516,8 +822,20 @@ def create_engineers_pool(
     return engineers
 
 
-SUBURB_DISTRICTS = ("Кашира", "Ступино", "Домодедово")
 DEFAULT_POOL_SIZE = 11
+SUBURB_ENGINEERS_PER_REQUESTS = 4    # одна выездная бригада города примерно на 4 заявки
+
+
+def suburb_home(requests: List[Request], city: str) -> Tuple[float, float]:
+    """
+    Точка старта бригад города Подмосковья — «дом» по ТЗ.
+    Берём центр тяжести заявок города: он гарантированно лежит внутри города
+    и не зависит от того, есть ли город в таблице DISTRICT_COORDS.
+    """
+    pts = [(r.lat, r.lon) for r in requests if r.district == city]
+    if not pts:
+        return DISTRICT_COORDS.get(city, MOSCOW_CENTER)
+    return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
 
 
 def build_engineers_for_dataset(
@@ -526,17 +844,51 @@ def build_engineers_for_dataset(
     brigade_names: Optional[List[str]] = None,
     dataset_name: str = "",
 ) -> List[Engineer]:
-    """Единая сборка пула инженеров для консоли (solution.py) и веб-сервиса (app.py)."""
-    has_suburbs = "юго-восток" in dataset_name.lower() or any(
-        r.district in SUBURB_DISTRICTS for r in requests
-    )
+    """
+    Единая сборка пула бригад для консоли (solution.py) и веб-сервиса (app.py).
+
+    Москва обслуживается из районного офиса/склада. Для каждого города Подмосковья,
+    где есть заявки, поднимается отдельный пул с базированием в самом городе:
+    по ТЗ рейсы Москва <-> Кашира строить нельзя, а из Москвы такие заявки просто
+    недостижимы в двухчасовом окне (плечо до Каширы — больше 100 км).
+    """
+    engineers: List[Engineer] = []
+
+    moscow_requests = [r for r in requests if r.region == MOSCOW_REGION]
     n_eng = max(DEFAULT_POOL_SIZE, len(brigade_names)) if brigade_names else DEFAULT_POOL_SIZE
-    return create_engineers_pool(
-        n_engineers=n_eng,
-        depot_coords=depot_coords,
-        has_suburbs=has_suburbs,
-        brigade_names=brigade_names or [],
-    )
+    if moscow_requests:
+        engineers += create_engineers_pool(
+            n_engineers=n_eng,
+            depot_coords=depot_coords,
+            has_suburbs=False,
+            brigade_names=brigade_names or [],
+            region=MOSCOW_REGION,
+        )
+
+    for city in SUBURB_DISTRICTS:
+        city_requests = [r for r in requests if r.district == city]
+        if not city_requests:
+            continue
+        # Пул с запасом: лексикографическая цель всё равно выведет на линию минимум бригад
+        n_city = max(2, -(-len(city_requests) // SUBURB_ENGINEERS_PER_REQUESTS) + 1)
+        home = suburb_home(requests, city)
+        for k in range(n_city):
+            engineers.append(
+                Engineer(
+                    id=f"Бригада {city}-{k + 1:02d}",
+                    home_lat=home[0],
+                    home_lon=home[1],
+                    shift_start_min=8 * 60,
+                    shift_end_min=22 * 60,
+                    transport="car",     # плечи между городами большие, пешие и вело нереалистичны
+                    skills={"connection", "extra_order", "repair", "local_repair",
+                            "emergency", "accident"},
+                    equipment_capacity=TRANSPORT_CONFIG["car"]["capacity"],
+                    region=city,
+                )
+            )
+
+    return engineers
 
 
 # ======================================================================================
@@ -562,9 +914,11 @@ def recompute_route_schedule(
     if not request_sequence:
         return [], 0.0, 0, engineer.shift_start_min
 
-    # Проверка навыков
+    # Проверка навыков и региона
     for req in request_sequence:
         if req.req_type not in engineer.skills:
+            return None
+        if req.region != engineer.region:
             return None
 
     # Проверка суммарной вместимости
@@ -620,7 +974,7 @@ def try_insert_request(
     гарантируя корректность всех таймингов, расстояний и возврата в депо.
     """
     eng = route.engineer
-    if req.req_type not in eng.skills:
+    if req.req_type not in eng.skills or req.region != eng.region:
         return None
     if route.total_equipment + req.equipment_demand > eng.equipment_capacity:
         return None
@@ -677,7 +1031,7 @@ def run_4pass_optimization(
             min_cost = float("inf")
 
             for eng in engineers:
-                if req.req_type not in eng.skills:
+                if req.req_type not in eng.skills or req.region != eng.region:
                     continue
                 res = try_insert_request(routes[eng.id], req)
                 if res is not None:
@@ -729,7 +1083,7 @@ def run_baseline_fifo(
     for req in requests:
         assigned = False
         for eng in engineers:
-            if req.req_type not in eng.skills:
+            if req.req_type not in eng.skills or req.region != eng.region:
                 continue
             curr_reqs = [v.request for v in routes[eng.id].visits]
             cand = curr_reqs + [req]
@@ -784,9 +1138,12 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
         "extra_order": "Дозаказ оборудования",
     }
     tname = type_names.get(r.req_type, r.req_type)
-    skilled = [e for e in engineers if r.req_type in e.skills]
+    skilled = [e for e in engineers if r.req_type in e.skills and r.region == e.region]
     if not skilled:
-        reason = f"Нет инженеров с квалификацией «{r.req_type}» в пуле бригад района."
+        if not any(e.region == r.region for e in engineers):
+            reason = f"Нет бригад, базирующихся в «{r.region}»: маршруты между регионами не строятся."
+        else:
+            reason = f"Нет инженеров с квалификацией «{r.req_type}» в пуле бригад района."
     elif all(e.equipment_capacity < r.equipment_demand for e in skilled):
         reason = f"Требуемое оборудование ({r.equipment_demand} ед.) превышает вместимость всех доступных транспортных средств."
     elif r.window_end_min - r.window_start_min < r.work_duration_min:
@@ -848,19 +1205,30 @@ def solve_vrptw_ortools_routing(
     if N == 0 or M == 0:
         return warm_routes, unserved_requests(requests, warm_routes), "Пустой набор данных"
 
-    depot = (engineers[0].home_lat, engineers[0].home_lon)
-    manager = pywrapcp.RoutingIndexManager(N + 1, M, 0)
+    # Точек старта может быть несколько: Москва стартует из склада округа,
+    # каждый город Подмосковья — из своей базы. Узлы 0..D-1 — депо, дальше заявки.
+    depot_points: List[Tuple[float, float]] = []
+    depot_node: Dict[Tuple[float, float], int] = {}
+    for e in engineers:
+        home = (e.home_lat, e.home_lon)
+        if home not in depot_node:
+            depot_node[home] = len(depot_points)
+            depot_points.append(home)
+    D = len(depot_points)
+    starts = [depot_node[(e.home_lat, e.home_lon)] for e in engineers]
+
+    manager = pywrapcp.RoutingIndexManager(D + N, M, starts, list(starts))
     routing = pywrapcp.RoutingModel(manager)
 
     # 0. Предрасчет матриц расстояний (м) и переходов по времени (дорога + работы в точке отправления)
     #    под каждый вид транспорта — колбэки OR-Tools только читают готовые значения
-    points = [depot] + [(r.lat, r.lon) for r in requests]
+    points = depot_points + [(r.lat, r.lon) for r in requests]
     dist_m: Dict[str, List[List[int]]] = {}
     transit_min: Dict[str, List[List[int]]] = {}
     for transport in {e.transport for e in engineers}:
         d_rows, t_rows = [], []
         for n1, c1 in enumerate(points):
-            duration = 0 if n1 == 0 else requests[n1 - 1].work_duration_min
+            duration = 0 if n1 < D else requests[n1 - D].work_duration_min
             d_row, t_row = [], []
             for c2 in points:
                 d = road_distance_km(c1[0], c1[1], c2[0], c2[1], transport)
@@ -884,7 +1252,7 @@ def solve_vrptw_ortools_routing(
     # 2. Вместимость
     def demand_cb(from_idx):
         n = manager.IndexToNode(from_idx)
-        return 0 if n == 0 else requests[n - 1].equipment_demand
+        return 0 if n < D else requests[n - D].equipment_demand
     demand_cb_idx = routing.RegisterUnaryTransitCallback(demand_cb)
     routing.AddDimensionWithVehicleCapacity(
         demand_cb_idx, 0, [e.equipment_capacity for e in engineers], True, "Capacity"
@@ -903,13 +1271,15 @@ def solve_vrptw_ortools_routing(
     routing.AddDimensionWithVehicleTransits(time_callbacks, 1440, 1440, False, "Time")
     time_dim = routing.GetDimensionOrDie("Time")
 
-    for i in range(1, N + 1):
-        r = requests[i - 1]
+    for i in range(D, D + N):
+        r = requests[i - D]
         index = manager.NodeToIndex(i)
         routing.AddDisjunction([index], 10_000_000)
 
         latest_arr = r.window_end_min - r.work_duration_min
-        allowed = [k for k, e in enumerate(engineers) if r.req_type in e.skills]
+        # Навыки и регион: межрегиональные рейсы запрещены так же жёстко, как отсутствие допуска
+        allowed = [k for k, e in enumerate(engineers)
+                   if r.req_type in e.skills and r.region == e.region]
         if latest_arr < r.window_start_min or not allowed:
             # Окно короче норматива или нет допущенных мастеров — заявка заведомо не выполнима,
             # исключаем её из модели, чтобы она не попала в маршрут без ограничений
@@ -933,7 +1303,7 @@ def solve_vrptw_ortools_routing(
     # Теплый старт: 4-Pass решение передается в OR-Tools как начальное назначение
     routing.CloseModelWithParameters(params)
     engine_idx = {e.id: k for k, e in enumerate(engineers)}
-    node_of = {r.id: i + 1 for i, r in enumerate(requests)}
+    node_of = {r.id: D + i for i, r in enumerate(requests)}
     initial = [[] for _ in range(M)]
     for route in warm_routes:
         k = engine_idx.get(route.engineer.id)
@@ -957,8 +1327,8 @@ def solve_vrptw_ortools_routing(
         route_reqs = []
         while not routing.IsEnd(idx):
             node = manager.IndexToNode(idx)
-            if node != 0:
-                route_reqs.append(requests[node - 1])
+            if node >= D:
+                route_reqs.append(requests[node - D])
             idx = sol.Value(routing.NextVar(idx))
 
         if route_reqs:
@@ -1064,6 +1434,11 @@ def validate_solution(
 
             if req.req_type not in eng.skills:
                 skill_violations.append(f"{eng.id}: нет навыка {req.req_type} для заявки {req.id}")
+
+            if req.region != eng.region:
+                skill_violations.append(
+                    f"{eng.id} (регион {eng.region}): заявка {req.id} из региона {req.region} — "
+                    f"межрегиональный рейс запрещён")
 
             leg_km = road_distance_km(cur_lat, cur_lon, req.lat, req.lon, eng.transport)
             leg_min = travel_time_min(leg_km, eng.transport)

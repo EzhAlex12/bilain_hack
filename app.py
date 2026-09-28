@@ -44,7 +44,7 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
         address = (row.get("Адрес") or "").strip()
         district_hint = district or district_hint
 
-        lat, lon = solver.geocode_district_cached(address, district)
+        lat, lon, geo_source = solver.geocode_address(address, district)
         w_start = solver.parse_minutes(row["Начало"])
         w_end = solver.parse_minutes(row["Окончание"])
         is_gigabit = (row.get("Гигабитное подключение") or "").strip() == "Да"
@@ -62,6 +62,7 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
                 address=address,
                 is_gigabit=is_gigabit,
                 equipment_demand=demand,
+                geo_source=geo_source,
             )
         )
 
@@ -71,16 +72,7 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
         if b and b not in brigade_names:
             brigade_names.append(b)
 
-    scan_text = f"{depot_address} {district_hint}".lower()
-    if any(k in scan_text for k in ["симферопольск", "югоцентр", "даниловск", "академическ", "котловк", "зюзино", "хамовник", "садовник", "гагаринск", "замосквореч", "нагорн"]):
-        depot_coords = (55.6885, 37.6181)
-        depot_address = "г. Москва, проезд Симферопольский, д. 7"
-    elif any(k in scan_text for k in ["бирюлев", "бирюлёв", "орехово", "царицыно", "братеево", "зябликово", "кашира", "ступино", "домодедово", "юго-восток"]):
-        depot_coords = (55.5976, 37.6690)
-        depot_address = "г. Москва, ул Бирюлёвская, д 1с 1"
-    else:
-        depot_coords = (55.7001, 37.7690)
-        depot_address = "г. Москва, ул Юных Ленинцев, д 83с 4"
+    depot_coords, depot_address, _ = solver.resolve_depot(depot_address, district_hint)
 
     return requests, depot_coords, depot_address, brigade_names
 
@@ -88,6 +80,12 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
 def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = ""):
     # Единый пул инженеров (тот же, что в консольном solution.py); все стартуют строго из офиса
     engineers = solver.build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=dataset_name)
+
+    # Досчёт дорожного графа для точек этого файла: без него плечи вне кеша
+    # считались бы по прямой. Сети нет — считаем на приближении и честно это показываем.
+    points = [(e.home_lat, e.home_lon) for e in engineers] + [(r.lat, r.lon) for r in requests]
+    prefetch = solver.prefetch_osrm(points, {e.transport for e in engineers}, timeout=20)
+    solver.reset_leg_stats()
 
     # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
     opt_routes, opt_dropped = solver.run_4pass_optimization(requests, engineers)
@@ -296,9 +294,17 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
         "engineersCount": base_staff
     }
 
+    geo_osm = sum(1 for r in requests if r.geo_source == "osm")
     return {
         "engine": "Google OR-Tools (VRPTW)" if solver.HAS_ORTOOLS else "4-Pass Solver",
         "ortools_status": ortools_status,
+        "distance_quality": {
+            "legs": solver.leg_stats(),
+            "winding_factors": solver._CALIBRATED_WINDING or solver.WINDING_FACTORS,
+            "geocoded": geo_osm,
+            "geocoded_total": len(requests),
+            "prefetch": prefetch,
+        },
         "solution": frontend_solution,
         "baseline": frontend_baseline,
         "depot": {

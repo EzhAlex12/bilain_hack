@@ -16,6 +16,9 @@ import sys
 # Весь алгоритм живёт здесь — impортируем всё сразу
 from vrptw_4pass_solver import (
     HAS_ORTOOLS,
+    leg_stats,
+    prefetch_osrm,
+    reset_leg_stats,
     load_dataset,
     build_engineers_for_dataset,
     run_4pass_optimization,
@@ -39,6 +42,11 @@ def evaluate_dataset(csv_path: str) -> None:
 
     # Единый пул инженеров (тот же, что в веб-сервисе app.py)
     engineers = build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=base_name)
+
+    # Досчёт дорожного графа для точек датасета (при наличии сети) и обнуление счётчиков
+    prefetch_osrm([(e.home_lat, e.home_lon) for e in engineers] + [(r.lat, r.lon) for r in requests],
+                  {e.transport for e in engineers}, timeout=20)
+    reset_leg_stats()
 
     # 1. 4-Pass оптимизация (гарантированное допустимое решение)
     opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
@@ -65,7 +73,13 @@ def evaluate_dataset(csv_path: str) -> None:
     val = validate_solution(opt_routes, requests, engineers, unassigned=opt_dropped)
     audit_line = "✅ 100% ВАЛИДНО (0 нарушений)" if val["is_valid"] else f"❌ Нарушений: {val['total_violations']}"
 
+    geo_osm = sum(1 for r in requests if r.geo_source == "osm")
+    legs = leg_stats()
     print(f"Офис/склад района: {depot_addr or 'Автоопределение по району'}")
+    geo_note = "" if geo_osm == len(requests) else " (остальные размещены приблизительно внутри района)"
+    print(f"Геокодировано адресов: {geo_osm}/{len(requests)}{geo_note}")
+    print(f"Расчёт расстояний: по графу OSM {legs['graph']}, выведено из графа {legs['derived']}, "
+          f"приближение по прямой {legs['approx']} ({legs['graph_share']*100:.1f}% по графу)")
     print(f"Статус оптимизатора: {ortools_status_str}")
     print(f"Аудит ограничений: {audit_line}")
     print(f"Всего заявок в файле: {len(requests)}")
