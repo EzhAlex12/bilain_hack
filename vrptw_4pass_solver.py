@@ -768,6 +768,7 @@ def create_engineers_pool(
     seed: int = 42,
     brigade_names: Optional[List[str]] = None,
     region: str = MOSCOW_REGION,
+    transport_mode: str = "mixed",
 ) -> List[Engineer]:
     engineers: List[Engineer] = []
 
@@ -780,9 +781,15 @@ def create_engineers_pool(
         # 100% инженеров стартуют строго из единого депо округа
         home = depot_coords
 
+        # Ручной выбор парка в интерфейсе: весь пул переводится на один вид транспорта.
+        # Зеркало createEngineers() в index.html; "mixed" — штатный состав по ТЗ.
+        forced = transport_mode if transport_mode in TRANSPORT_CONFIG else None
+
         # Распределение транспорта по пулу:
         # Для Подмосковья (Юго-восток с большими плечами) пул авто шире
-        if has_suburbs:
+        if forced:
+            transport = forced
+        elif has_suburbs:
             if k < 8:
                 transport = "car"
             elif k < 10:
@@ -800,8 +807,10 @@ def create_engineers_pool(
                 transport = "foot"
 
         skills = {"connection", "extra_order", "repair", "local_repair"}
-        # Аварии на ТКД закрепляются строго за авто-бригадами (тяжелое оборудование и выездной допуск)
-        if transport == "car" and k < 5:
+        # Аварии на ТКД закрепляются за первыми пятью бригадами: в штатном смешанном пуле
+        # это ровно авто-бригады, а при выборе одного вида транспорта иначе не осталось бы
+        # ни одной допущенной бригады и все аварии выпали бы из плана (как во фронтенде)
+        if k < 5:
             skills.add("emergency")
             skills.add("accident")
 
@@ -843,6 +852,7 @@ def build_engineers_for_dataset(
     depot_coords: Tuple[float, float],
     brigade_names: Optional[List[str]] = None,
     dataset_name: str = "",
+    transport_mode: str = "mixed",
 ) -> List[Engineer]:
     """
     Единая сборка пула бригад для консоли (solution.py) и веб-сервиса (app.py).
@@ -863,6 +873,7 @@ def build_engineers_for_dataset(
             has_suburbs=False,
             brigade_names=brigade_names or [],
             region=MOSCOW_REGION,
+            transport_mode=transport_mode,
         )
 
     for city in SUBURB_DISTRICTS:

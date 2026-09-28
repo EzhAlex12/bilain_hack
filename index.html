@@ -3423,14 +3423,25 @@
       return null;
     }
 
-    async function fetchOrtoolsSolution(csvText, fallbackParsed) {
+    // Ключ кеша решений: для каждого вида парка своё решение OR-Tools, иначе
+    // переключение движка достаёт результат, посчитанный для прошлого транспорта
+    function ortoolsCacheKey(mode) {
+      return 'ortools:' + (mode || globalTransportMode || 'mixed');
+    }
+
+    async function fetchOrtoolsSolution(csvText, fallbackParsed, transportMode) {
       const backend = await checkBackendAlive();
       if (!backend || !backend.uploadUrl) return null;
 
       try {
         const ctrl = new AbortController();
         const tId = setTimeout(() => ctrl.abort(), 35000);
-        const resp = await fetch(backend.uploadUrl, {
+        // Вид транспорта уходит на бэкенд: без него /api/upload всегда собирал бы
+        // штатный смешанный пул, и кнопки парка в режиме OR-Tools ни на что не влияли
+        const mode = transportMode || globalTransportMode || 'mixed';
+        const uploadUrl = backend.uploadUrl + (backend.uploadUrl.indexOf('?') >= 0 ? '&' : '?')
+          + 'transport=' + encodeURIComponent(mode);
+        const resp = await fetch(uploadUrl, {
           method: 'POST',
           body: csvText,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -3483,8 +3494,8 @@
 
       if (mode === 'ortools') {
         // 1. Если уже есть вычисленное решение OR-Tools в кеше текущей вкладки — МГНОВЕННО (0 мс) переключаем
-        if (session && session.solutions && session.solutions['ortools']) {
-          const cached = session.solutions['ortools'];
+        if (session && session.solutions && session.solutions[ortoolsCacheKey(session.transportMode)]) {
+          const cached = session.solutions[ortoolsCacheKey(session.transportMode)];
           session.solution = cached.solution;
           session.baseline = cached.baseline;
           session.engine = cached.engine;
@@ -3513,17 +3524,18 @@
 
           syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
           try {
+            const modeAtRequest = session.transportMode || globalTransportMode;
             const ortoolsRes = await fetchOrtoolsSolution(session.csvInput, {
               requests: parsed.requests,
               depotCoords: parsed.depotCoords,
               isRemote: isRemote,
               timeMin: timeMin,
               brigadeNames: parsed.brigadeNames
-            });
+            }, modeAtRequest);
 
             if (ortoolsRes && ortoolsRes.solution) {
               if (!session.solutions) session.solutions = {};
-              session.solutions['ortools'] = ortoolsRes;
+              session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
               session.solution = ortoolsRes.solution;
               session.baseline = ortoolsRes.baseline;
               session.engine = ortoolsRes.engine;
@@ -3632,16 +3644,20 @@
             badge.innerHTML = '🔄 Оптимизация OR-Tools...';
           }
 
+          const modeAtRequest = session.transportMode || globalTransportMode;
           fetchOrtoolsSolution(csvInput, {
             requests: parsed.requests,
             depotCoords: parsed.depotCoords,
             isRemote: isRemote,
             timeMin: timeMin,
             brigadeNames: parsed.brigadeNames
-          }).then(ortoolsRes => {
+          }, modeAtRequest).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
-              session.solutions['ortools'] = ortoolsRes;
-              if (activeTabId === tabId && globalEngineMode === 'ortools') {
+              session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
+              // Ответ идёт секунды: если за это время нажали другую кнопку парка,
+              // результат остаётся в кеше, но на экран не попадает
+              if (activeTabId === tabId && globalEngineMode === 'ortools'
+                  && (session.transportMode || globalTransportMode) === modeAtRequest) {
                 session.solution = ortoolsRes.solution;
                 session.baseline = ortoolsRes.baseline;
                 session.engine = ortoolsRes.engine;
@@ -3995,8 +4011,7 @@
           baseline: fastBase,
           engine: 'Встроенный 4-Pass (JS)',
           ortools_status: 'Допустимое решение (4-Pass)'
-        },
-        'ortools': null
+        }
       };
 
       session.solution = fastSol;
@@ -4023,16 +4038,20 @@
             badge.innerHTML = '🔄 Оптимизация OR-Tools...';
           }
 
+          const modeAtRequest = session.transportMode || globalTransportMode;
           fetchOrtoolsSolution(session.csvInput, {
             requests: parsed.requests,
             depotCoords: parsed.depotCoords,
             isRemote: isRemote,
             timeMin: timeMin,
             brigadeNames: parsed.brigadeNames
-          }).then(ortoolsRes => {
+          }, modeAtRequest).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
-              session.solutions['ortools'] = ortoolsRes;
-              if (globalEngineMode === 'ortools' && getActiveSession() === session) {
+              session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
+              // Ответ идёт секунды: если за это время нажали другую кнопку парка,
+              // результат остаётся в кеше, но на экран не попадает
+              if (globalEngineMode === 'ortools' && getActiveSession() === session
+                  && (session.transportMode || globalTransportMode) === modeAtRequest) {
                 session.solution = ortoolsRes.solution;
                 session.baseline = ortoolsRes.baseline;
                 session.engine = ortoolsRes.engine;

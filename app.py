@@ -77,9 +77,11 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
     return requests, depot_coords, depot_address, brigade_names
 
 
-def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = ""):
-    # Единый пул инженеров (тот же, что в консольном solution.py); все стартуют строго из офиса
-    engineers = solver.build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=dataset_name)
+def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = "", transport_mode: str = "mixed"):
+    # Единый пул инженеров (тот же, что в консольном solution.py); все стартуют строго из офиса.
+    # transport_mode приходит из переключателя парка в интерфейсе.
+    engineers = solver.build_engineers_for_dataset(requests, depot_coords, brigade_names,
+                                                   dataset_name=dataset_name, transport_mode=transport_mode)
 
     # Досчёт дорожного графа для точек этого файла: без него плечи вне кеша
     # считались бы по прямой. Сети нет — считаем на приближении и честно это показываем.
@@ -446,7 +448,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not requests:
                     self.send_json_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
                     return
-                res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names)
+                # Вид транспорта выбирается кнопками парка в интерфейсе и приезжает
+                # в query: без него бэкенд всегда возвращал бы штатный смешанный пул
+                # и перетирал бы им результат нажатия кнопки.
+                transport_mode = (parse_qs(parsed.query).get("transport", ["mixed"])[0] or "mixed").strip()
+                res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names,
+                                        transport_mode=transport_mode)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_cors_headers()
