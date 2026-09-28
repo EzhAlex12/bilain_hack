@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Математическая модель VRP-TW-S-C-M | билайн бизнес</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}]});"></script>
+  <style>
+    /* ─── Beeline Brand Tokens ─── */
+    :root {
+      --bee-yellow: #FFCC00;
+      --bee-yellow-soft: #FFF5CC;
+      --bee-yellow-glow: #FFE066;
+      --bee-black: #1A1A1A;
+      --bee-dark: #2D2D2D;
+      --bee-gray-700: #444444;
+      --bee-gray-500: #777777;
+      --bee-gray-300: #C4C4C4;
+      --bee-gray-100: #F2F2F2;
+      --bee-white: #FFFFFF;
+      --bee-accent-green: #00C853;
+      --bee-accent-amber: #FFB300;
+      --bee-accent-red: #FF3D00;
+      --bee-radius: 10px;
+      --bee-shadow: 0 2px 16px rgba(0,0,0,0.06);
+      --bee-shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+    }
+
+    /* ─── Reset & Base ─── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.72;
+      color: var(--bee-gray-700);
+      background: var(--bee-gray-100);
+    }
+
+    /* ─── Page Container ─── */
+    .doc {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--bee-white);
+    }
+    @media screen {
+      .doc {
+        margin: 32px auto;
+        border-radius: 16px;
+        box-shadow: var(--bee-shadow-lg);
+        overflow: hidden;
+      }
+    }
+    .doc-body { padding: 48px 56px 56px; }
+
+    /* ─── Hero Header ─── */
+    .hero {
+      background: linear-gradient(135deg, var(--bee-black) 0%, #333333 100%);
+      padding: 48px 56px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      right: -60px; top: -60px;
+      width: 260px; height: 260px;
+      border-radius: 50%;
+      background: var(--bee-yellow);
+      opacity: 0.07;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      border-radius: 4px;
+      margin-bottom: 18px;
+    }
+    .hero h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--bee-white);
+      line-height: 1.32;
+      margin-bottom: 20px;
+    }
+    .hero h1 span { color: var(--bee-yellow); }
+    .hero-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 24px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.7);
+    }
+    .hero-meta b { color: var(--bee-yellow); font-weight: 700; }
+
+    /* ─── Yellow Stripe Separator ─── */
+    .stripe {
+      height: 4px;
+      background: linear-gradient(90deg, var(--bee-yellow) 0%, var(--bee-yellow-glow) 50%, var(--bee-yellow) 100%);
+    }
+
+    /* ─── Table of Contents ─── */
+    .toc {
+      background: var(--bee-gray-100);
+      border-radius: var(--bee-radius);
+      padding: 24px 28px;
+      margin: 0 0 36px;
+    }
+    .toc-title {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--bee-gray-500);
+      margin-bottom: 14px;
+    }
+    .toc ol {
+      list-style: none;
+      counter-reset: toc-counter;
+      padding: 0;
+    }
+    .toc > ol > li { counter-increment: toc-counter; margin: 4px 0; }
+    .toc > ol > li > a::before {
+      content: counter(toc-counter, decimal-leading-zero) ".";
+      font-weight: 700;
+      color: var(--bee-yellow);
+      margin-right: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .toc a {
+      color: var(--bee-gray-700);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color .15s;
+    }
+    .toc a:hover { color: var(--bee-black); }
+    .toc .sub {
+      padding-left: 28px;
+      margin: 2px 0 6px;
+    }
+    .toc .sub li { margin: 2px 0; }
+    .toc .sub a { font-size: 13px; color: var(--bee-gray-500); font-weight: 400; }
+
+    /* ─── Headings ─── */
+    h2.section-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--bee-black);
+      margin: 42px 0 8px;
+      padding-bottom: 10px;
+      border-bottom: 3px solid var(--bee-yellow);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h2.section-title .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px; height: 32px;
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      font-size: 14px;
+      font-weight: 800;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--bee-dark);
+      margin: 28px 0 8px;
+    }
+    h3::before {
+      content: '▸ ';
+      color: var(--bee-yellow);
+    }
+
+    /* ─── Paragraphs & Lists ─── */
+    p { margin: 10px 0; font-size: 14.5px; }
+    ul, ol { margin: 8px 0 8px 20px; }
+    li { margin: 4px 0; font-size: 14.5px; }
+
+    /* ─── Key Metric Cards ─── */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 20px 0 28px;
+    }
+    .metric-card {
+      background: var(--bee-gray-100);
+      border-radius: var(--bee-radius);
+      padding: 18px 16px;
+      text-align: center;
+      border-left: 4px solid var(--bee-yellow);
+    }
+    .metric-card .value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--bee-black);
+      line-height: 1.1;
+    }
+    .metric-card .label {
+      font-size: 12px;
+      color: var(--bee-gray-500);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    /* ─── Highlight Box ─── */
+    .highlight-box {
+      background: linear-gradient(135deg, #FFFDE7 0%, #FFF8E1 100%);
+      border: 1px solid var(--bee-yellow);
+      border-left: 5px solid var(--bee-yellow);
+      border-radius: 0 var(--bee-radius) var(--bee-radius) 0;
+      padding: 18px 22px;
+      margin: 18px 0;
+      font-size: 14px;
+    }
+    .highlight-box strong { color: var(--bee-black); }
+
+    /* ─── Dark Info Box ─── */
+    .dark-box {
+      background: var(--bee-black);
+      color: rgba(255,255,255,0.85);
+      border-radius: var(--bee-radius);
+      padding: 22px 26px;
+      margin: 18px 0;
+      font-size: 14px;
+    }
+    .dark-box strong, .dark-box b { color: var(--bee-yellow); }
+    .dark-box code { background: rgba(255,255,255,0.1); color: var(--bee-yellow); }
+
+    /* ─── Tables ─── */
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin: 18px 0;
+      font-size: 13.5px;
+      border-radius: var(--bee-radius);
+      overflow: hidden;
+      border: 1px solid #E0E0E0;
+    }
+    thead th {
+      background: var(--bee-black);
+      color: var(--bee-white);
+      font-weight: 700;
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 3px solid var(--bee-yellow);
+    }
+    tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #EEEEEE;
+      vertical-align: top;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:nth-child(even) { background: #FAFAFA; }
+    tbody tr:hover { background: var(--bee-yellow-soft); }
+
+    /* ─── Code / Pre ─── */
+    code {
+      background: #F0F0F0;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: #C2185B;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    pre {
+      background: var(--bee-black);
+      color: #E0E0E0;
+      padding: 20px 24px;
+      border-radius: var(--bee-radius);
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.65;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      border-left: 4px solid var(--bee-yellow);
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+
+    /* ─── Pipeline Diagram ─── */
+    .pipeline {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin: 24px 0;
+    }
+    .pipeline-step {
+      background: var(--bee-black);
+      color: var(--bee-white);
+      padding: 14px 28px;
+      border-radius: var(--bee-radius);
+      font-size: 13.5px;
+      font-weight: 600;
+      text-align: center;
+      width: 100%;
+      max-width: 560px;
+      position: relative;
+    }
+    .pipeline-step.accent {
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      font-weight: 800;
+    }
+    .pipeline-arrow {
+      font-size: 22px;
+      color: var(--bee-yellow);
+      line-height: 1;
+      padding: 4px 0;
+    }
+    .pipeline-note {
+      font-size: 11.5px;
+      color: var(--bee-gray-500);
+      font-style: italic;
+      margin: -2px 0 2px;
+    }
+
+    /* ─── SLA Risk Indicators ─── */
+    .sla-indicators {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .sla-card {
+      border-radius: var(--bee-radius);
+      padding: 14px 16px;
+      text-align: center;
+    }
+    .sla-card.green  { background: #E8F5E9; border: 2px solid var(--bee-accent-green); }
+    .sla-card.yellow { background: #FFF8E1; border: 2px solid var(--bee-accent-amber); }
+    .sla-card.red    { background: #FFEBEE; border: 2px solid var(--bee-accent-red); }
+    .sla-card .icon  { font-size: 24px; }
+    .sla-card .title { font-size: 13px; font-weight: 700; margin: 4px 0 2px; }
+    .sla-card .desc  { font-size: 12px; color: var(--bee-gray-500); }
+
+    /* ─── Math Blocks ─── */
+    .katex-display { margin: 14px 0; overflow-x: auto; }
+
+    /* ─── Feature List ─── */
+    .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0;
+    }
+    .feature-list li {
+      padding: 8px 0 8px 28px;
+      position: relative;
+      border-bottom: 1px solid #F0F0F0;
+      font-size: 14px;
+    }
+    .feature-list li:last-child { border-bottom: none; }
+    .feature-list li::before {
+      content: '✓';
+      position: absolute;
+      left: 0; top: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px; height: 20px;
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    /* ─── Numbered Items ─── */
+    .num-item {
+      display: flex;
+      gap: 14px;
+      margin: 14px 0;
+      align-items: flex-start;
+    }
+    .num-item .n {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .num-item .content { flex: 1; }
+
+    /* ─── Capacity Badge ─── */
+    .cap-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .cap-badge {
+      text-align: center;
+      background: var(--bee-gray-100);
+      border-radius: var(--bee-radius);
+      padding: 14px 10px;
+    }
+    .cap-badge .emoji { font-size: 26px; }
+    .cap-badge .name { font-size: 12px; font-weight: 600; color: var(--bee-gray-700); margin: 4px 0 2px; }
+    .cap-badge .val  { font-size: 18px; font-weight: 800; color: var(--bee-black); }
+    .cap-badge .unit { font-size: 11px; color: var(--bee-gray-500); }
+
+    /* ─── Footer ─── */
+    .doc-footer {
+      background: var(--bee-black);
+      padding: 24px 56px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .doc-footer .brand {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--bee-yellow);
+      letter-spacing: 1px;
+    }
+    .doc-footer .copy {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    /* ─── Print Button ─── */
+    .print-btn {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      background: var(--bee-yellow);
+      color: var(--bee-black);
+      border: none;
+      padding: 14px 24px;
+      border-radius: 50px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(255,204,0,0.4);
+      z-index: 10000;
+      transition: transform .15s;
+    }
+    .print-btn:hover { transform: translateY(-2px); }
+
+    /* ─── Print Styles ─── */
+    @page { size: A4; margin: 14mm 12mm; }
+    @media print {
+      body { background: #FFF !important; }
+      .doc {
+        max-width: 100% !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+      }
+      .hero { padding: 32px 36px 28px; }
+      .doc-body { padding: 28px 36px 36px; }
+      .doc-footer { padding: 16px 36px; }
+      .print-btn { display: none !important; }
+      h2.section-title { break-after: avoid; }
+      h3 { break-after: avoid; }
+      table, pre, .pipeline, .metrics, .sla-indicators, .cap-grid { break-inside: avoid; }
+      .highlight-box, .dark-box { break-inside: avoid; }
+      tbody tr:hover { background: inherit !important; }
+    }
+  </style>
+</head>
+<body>
+
+<button class="print-btn" onclick="window.print()">🖨️ Сохранить в PDF</button>
+
+<div class="doc">
+
+  <!-- ═══════════════ HERO HEADER ═══════════════ -->
+  <div class="hero">
+    <div class="hero-badge">ЛЦТ 2026 • Задача №3</div>
+    <h1>Математическая модель, архитектура и алгоритм<br>интеллектуальной маршрутизации<br>выездных инженеров <span>(VRP-TW-S-C-M)</span></h1>
+    <div class="hero-meta">
+      <div><b>Компания:</b> ПАО «ВымпелКом» (билайн бизнес)</div>
+      <div><b>Хакатон:</b> Лидеры цифровой трансформации 2026</div>
+      <div><b>Тема:</b> Интеллектуальная диспетчеризация и маршрутизация</div>
+      <div><b>Команда:</b> билайн бизнес | Маршрутизация инженеров</div>
+    </div>
+  </div>
+  <div class="stripe"></div>
+
+  <div class="doc-body">
+
+    <!-- ═══════════════ TOC ═══════════════ -->
+    <div class="toc">
+      <div class="toc-title">Содержание</div>
+      <ol>
+        <li><a href="#s1">Введение и бизнес-постановка задачи</a></li>
+        <li><a href="#s2">Классификация оптимизационной задачи</a></li>
+        <li><a href="#s3">Строгая математическая формализация модели</a>
+          <ul class="sub">
+            <li><a href="#s31">3.1. Множества, индексы и параметры</a></li>
+            <li><a href="#s32">3.2. Переменные решения</a></li>
+            <li><a href="#s33">3.3. Лексикографическая целевая функция</a></li>
+            <li><a href="#s34">3.4. Система строгих ограничений</a></li>
+          </ul>
+        </li>
+        <li><a href="#s4">Утверждённые нормативы трудоёмкости (билайн)</a></li>
+        <li><a href="#s5">Архитектура движка оптимизации: 4-Pass + OR-Tools</a>
+          <ul class="sub">
+            <li><a href="#s51">5.1. Иерархический 4-проходный планировщик</a></li>
+            <li><a href="#s52">5.2. Google OR-Tools RoutingModel</a></li>
+          </ul>
+        </li>
+        <li><a href="#s6">Мультимодальный транспортный граф и учёт пробок</a></li>
+        <li><a href="#s7">Продвинутый функционал веб-сервиса</a>
+          <ul class="sub">
+            <li><a href="#s71">7.1. Предиктивный контроль рисков SLA</a></li>
+            <li><a href="#s72">7.2. Ручное переназначение заявок</a></li>
+            <li><a href="#s73">7.3. Путевой лист инженера</a></li>
+            <li><a href="#s74">7.4. Динамическое перепланирование</a></li>
+            <li><a href="#s75">7.5. Explainable AI (XAI)</a></li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+
+    <!-- ═══════════════ 1. ВВЕДЕНИЕ ═══════════════ -->
+    <h2 class="section-title" id="s1"><span class="num">1</span> Введение и бизнес-постановка задачи</h2>
+
+    <p>В рамках кейса разработан промышленный веб-сервис поддержки принятия решений («интеллектуальный помощник диспетчера»), решающий задачу оптимального распределения входящего потока клиентских заявок между бригадами сервисных инженеров в административных округах Москвы (Восток, Югоцентр, Юго-восток).</p>
+
+    <h3>Ключевые бизнес-цели решения</h3>
+
+    <!-- Key metrics -->
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="value">100%</div>
+        <div class="label">Покрытие заявок</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">−26%</div>
+        <div class="label">Сокращение ФОТ</div>
+      </div>
+      <div class="metric-card">
+        <div class="value">−40%</div>
+        <div class="label">Пробег на заявку</div>
+      </div>
+    </div>
+
+    <div class="num-item"><div class="n">1</div><div class="content"><strong>Максимизация выполненных заявок (Приоритет №1):</strong> достижение <b>100% покрытия</b> клиентских заявок без необоснованного сброса заказов в статус невыполненных.</div></div>
+    <div class="num-item"><div class="n">2</div><div class="content"><strong>Минимизация ФОТ (Приоритет №2):</strong> число выведенных на линию бригад сокращается с 43 до 32 (<b>−26%</b>; от −9% на Востоке до −33% на Юго-востоке) за счёт плотной упаковки смен и устранения технологических простоев.</div></div>
+    <div class="num-item"><div class="n">3</div><div class="content"><strong>Снижение транспортных расходов (Приоритет №3):</strong> пробег на выполненную заявку падает с 7.51 до 4.53 км (<b>−40%</b>) по сравнению с Baseline FIFO. Абсолютный суммарный пробег снижается с 1104 до 928 км, причём оптимизатор обслуживает все 205 заявок против 147 у Baseline.</div></div>
+    <div class="num-item"><div class="n">4</div><div class="content"><strong>Гарантированное соблюдение SLA:</strong> строгое попадание в 2-часовые интервалы клиентов с предиктивным контролем рисков опозданий.</div></div>
+    <div class="num-item"><div class="n">5</div><div class="content"><strong>Мультимодальность:</strong> поддержка гибридного парка (служебные авто, общественный транспорт, велосипеды/СИМ, пешие бригады).</div></div>
+    <div class="num-item"><div class="n">6</div><div class="content"><strong>Полная прозрачность (XAI):</strong> формирование понятных объяснений решений для каждого назначения.</div></div>
+
+    <!-- ═══════════════ 2. КЛАССИФИКАЦИЯ ═══════════════ -->
+    <h2 class="section-title" id="s2"><span class="num">2</span> Классификация оптимизационной задачи</h2>
+
+    <p>В терминах исследования операций рассматриваемая задача относится к классу:</p>
+
+    <div class="dark-box" style="text-align:center; font-size:16px;">
+      <b>VRP-TW-S-C-M</b><br>
+      <span style="font-size:13px; opacity:.8;">Vehicle Routing Problem with Time Windows, Skills, Capacity &amp; Multimodal Fleet</span>
+    </div>
+
+    <p>Специфика задачи и практические ограничения:</p>
+
+    <ul class="feature-list">
+      <li><strong>Time Windows (TW):</strong> жёсткие интервалы доступности клиентов (стандартный слот — 2 часа). Опоздание ($T_{\text{arr}} > b_i$) строго запрещено. Раннее прибытие влечёт ожидание начала слота.</li>
+      <li><strong>Skills (S):</strong> неоднородная матрица компетенций. Допуск к устранению аварий на ТКД закреплен за специализированными авто-бригадами. Подключения и ремонты выполняются линейными мастерами.</li>
+      <li><strong>Capacity (C):</strong> лимит переноски оборудования (роутеры Wi-Fi 6, ТВ-приставки, ONT-терминалы, бухты кабеля).</li>
+      <li><strong>Multimodal (M):</strong> гетерогенный парк с индивидуальными скоростными профилями и моделями сопротивления дорожным заторам.</li>
+      <li><strong>Strict Depot Origin:</strong> 100% бригад начинают смену строго из официального офиса/склада района билайна.</li>
+    </ul>
+
+    <div class="cap-grid">
+      <div class="cap-badge"><div class="emoji">🚗</div><div class="name">Автомобиль</div><div class="val">30</div><div class="unit">ед. оборудования</div></div>
+      <div class="cap-badge"><div class="emoji">🚌</div><div class="name">Общ. транспорт</div><div class="val">18</div><div class="unit">ед. оборудования</div></div>
+      <div class="cap-badge"><div class="emoji">🚲</div><div class="name">Велосипед / СИМ</div><div class="val">14</div><div class="unit">ед. оборудования</div></div>
+      <div class="cap-badge"><div class="emoji">🚶</div><div class="name">Пеший</div><div class="val">10</div><div class="unit">ед. оборудования</div></div>
+    </div>
+
+    <!-- ═══════════════ 3. МАТЕМАТИЧЕСКАЯ МОДЕЛЬ ═══════════════ -->
+    <h2 class="section-title" id="s3"><span class="num">3</span> Строгая математическая формализация модели</h2>
+
+    <h3 id="s31">3.1. Множества, индексы и параметры</h3>
+
+    <ul>
+      <li>$V = \{0\} \cup C$ — полное множество вершин графа:
+        <ul>
+          <li>Вершина $0$ — единый районный офис/склад билайна (Депо старта смены);</li>
+          <li>$C = \{1, 2, \dots, N\}$ — множество клиентских заявок района.</li>
+        </ul>
+      </li>
+      <li>$K = \{1, 2, \dots, M\}$ — множество доступных сервисных инженеров округа.</li>
+      <li>$c_{ij}^k \ge 0$ — расстояние перемещения инженера $k$ между точками $i, j \in V$. Адреса заявок и офисов предварительно геокодируются (OSM Nominatim), после чего расстояние берётся <b>по дорожному графу OpenStreetMap</b>, а не по прямой.</li>
+    </ul>
+
+    <div class="highlight-box">
+      <strong>Модель расстояний:</strong>
+      $$c_{ij}^k = \begin{cases}
+      \text{OSRM}_{\text{mode}(k)}(i, j), & \text{пара есть в графе (основной случай)};\\[2pt]
+      \text{OSRM}_{\text{car}}(i, j) \cdot \dfrac{w_{\text{transit}}}{w_{\text{car}}}, & \text{общественный транспорт};\\[2pt]
+      \text{Haversine}(i, j) \cdot \hat{w}_{\text{mode}(k)}, & \text{точка вне графа (резерв)}.
+      \end{cases}$$
+    </div>
+
+    <p>Автомобильные расстояния берутся из графа OSRM, пешеходные и велосипедные — из соответствующих профилей FOSSGIS (тротуары, переходы, дворовые проходы, велодорожки); отдельного графа общественного транспорта у OSRM нет, поэтому он масштабируется от автомобильного. Резервные коэффициенты $\hat{w}$ <b>калибруются по самому графу</b> как медиана отношения (длина по дорогам)/(длина по прямой): $\hat{w}_{\text{car}} = 1.43$, $\hat{w}_{\text{transit}} = 1.32$, $\hat{w}_{\text{bike}} = 1.29$, $\hat{w}_{\text{foot}} = 1.25$. На всех трёх датасетах кейса граф покрывает 100% плеч, резервная ветвь не используется.</p>
+
+    <ul>
+      <li>$[a_i, b_i]$ — согласованное временное окно заявки $i \in C$ (минуты от 00:00).</li>
+      <li>$[T_{\text{start}}, T_{\text{end}}] = [480, 1320]$ — регламентная рабочая смена района с 08:00 до 22:00.</li>
+      <li>$d_i$ — нормативная продолжительность выполнения работ по заявке $i$ (мин).</li>
+      <li>$q_i$ — физическая потребность заявки $i$ в единицах оборудования.</li>
+      <li>$Q_k$ — максимальная вместимость транспорта инженера $k$.</li>
+      <li>$S_i \subseteq \mathcal{S}$ — квалификационные требования заявки $i$.</li>
+      <li>$\text{Skills}_k \subseteq \mathcal{S}$ — подтверждённые навыки инженера $k$.</li>
+      <li>$t_{ij}^k(T)$ — расчётное время перемещения между объектами с учётом модели трафика в момент $T$.</li>
+    </ul>
+
+    <!-- 3.2 -->
+    <h3 id="s32">3.2. Переменные решения</h3>
+
+    <p><strong>Маршрутные бинарные переменные:</strong></p>
+    $$x_{ijk} \in \{0, 1\}, \quad \forall i, j \in V, \, k \in K$$
+    <p>равна $1$, если специалист $k$ совершает непосредственный переезд от точки $i$ к точке $j$, и $0$ иначе.</p>
+
+    <p><strong>Индикаторы привлечения инженера в смену:</strong></p>
+    $$y_k \in \{0, 1\}, \quad \forall k \in K$$
+    <p>равна $1$, если мастер $k$ выведен на линию (назначена хотя бы одна заявка), и $0$ (находится в резерве).</p>
+
+    <p><strong>Индикаторы выполнения заявки:</strong></p>
+    $$z_i \in \{0, 1\}, \quad \forall i \in C$$
+    <p>равна $1$, если заявка $i$ успешно включена в расписание, и $0$, если не назначена.</p>
+
+    <p><strong>Временные непрерывные переменные:</strong></p>
+    <ul>
+      <li>$T_{ik} \ge 0$ — время фактического прибытия инженера $k$ на точку $i$;</li>
+      <li>$S_{ik} \ge 0$ — время фактического начала выполнения работ у клиента: $S_{ik} = \max(T_{ik}, a_i)$.</li>
+    </ul>
+
+    <!-- 3.3 -->
+    <h3 id="s33">3.3. Трёхуровневая лексикографическая целевая функция</h3>
+
+    <p>Целевая функция отражает строгую иерархию бизнес-приоритетов билайна:</p>
+
+    <div class="highlight-box">
+    $$\min F = \alpha \cdot \sum_{i \in C} (1 - z_i) + \beta \cdot \sum_{k \in K} y_k + \gamma \cdot \sum_{k \in K} \sum_{i \in V} \sum_{j \in V} c_{ij}^k x_{ijk}$$
+    </div>
+
+    <p>Весовые коэффициенты подобраны по принципу лексикографического доминирования ($\alpha \gg \beta \gg \gamma$):</p>
+    <ul>
+      <li><strong>$\alpha = 10^6$ (Приоритет 1):</strong> штраф за невыполнение заявки. Максимизация числа выполненных заказов абсолютно доминирует над экономией километров.</li>
+      <li><strong>$\beta = 10^3$ (Приоритет 2):</strong> штраф за открытие смены нового инженера. Алгоритм сначала максимально плотно заполняет графики уже работающих бригад.</li>
+      <li><strong>$\gamma = 1.0$ (Приоритет 3):</strong> минимизация суммарного пробега и холостых переездов.</li>
+    </ul>
+
+    <!-- 3.4 -->
+    <h3 id="s34">3.4. Система строгих ограничений</h3>
+
+    <div class="num-item"><div class="n">1</div><div class="content"><strong>Однократное обслуживание каждой назначенной заявки:</strong> $$\sum_{k \in K} \sum_{j \in V, j \ne i} x_{jik} = z_i, \quad \forall i \in C$$</div></div>
+
+    <div class="num-item"><div class="n">2</div><div class="content"><strong>Обязательный старт всех 100% бригад строго из единого депо:</strong> $$\sum_{j \in C} x_{0jk} = y_k, \quad \forall k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">3</div><div class="content"><strong>Сохранение потока (выезд после завершения работ):</strong> $$\sum_{i \in V, i \ne p} x_{ipk} - \sum_{j \in V, j \ne p} x_{pjk} = 0, \quad \forall p \in C, \, k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">4</div><div class="content"><strong>Соблюдение клиентских временных окон (SLA):</strong> $$S_{ik} = \max(T_{ik}, a_i)$$ $$S_{ik} + d_i \le b_i, \quad \forall i \in C, \, k \in K \quad (\text{если } z_i = 1)$$ <em>Строгий регламент:</em> все работы должны быть начаты не ранее $a_i$ и <b>полностью завершены строго до окончания клиентского окна $b_i$</b>.</div></div>
+
+    <div class="num-item"><div class="n">5</div><div class="content"><strong>Временная согласованность цепочки перемещений:</strong> $$T_{jk} \ge S_{ik} + d_i + t_{ij}^k(S_{ik} + d_i) - M(1 - x_{ijk}), \quad \forall i, j \in V, \, k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">6</div><div class="content"><strong>Ограничение общей смены (08:00 – 22:00):</strong> $$S_{ik} + d_i \le T_{\text{end}} = 1320, \quad \forall i \in C, \, k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">7</div><div class="content"><strong>Матрица квалификаций (Skills):</strong> $$x_{ijk} \le \mathbb{I}(S_j \subseteq \text{Skills}_k), \quad \forall j \in C, \, i \in V, \, k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">8</div><div class="content"><strong>Грузоподъёмность и лимит оборудования:</strong> $$\sum_{i \in C} q_i \sum_{j \in V} x_{jik} \le Q_k, \quad \forall k \in K$$</div></div>
+
+    <div class="num-item"><div class="n">9</div><div class="content"><strong>Региональная изоляция удалённого Подмосковья:</strong> $$x_{ijk} = 0, \quad \text{если } \rho(i) \ne \rho(j) \ \text{или}\ \rho(j) \ne \rho(k)$$ где $\rho(\cdot)$ — регион точки или бригады: сам город для Каширы, Ступина и Домодедова, «Москва» для всех остальных районов. По ТЗ инженеры удалённых городов базируются непосредственно в этих городах, а рейсы Москва $\leftrightarrow$ Кашира строить запрещено.</div></div>
+
+    <!-- ═══════════════ 4. НОРМАТИВЫ ═══════════════ -->
+    <h2 class="section-title" id="s4"><span class="num">4</span> Утверждённые нормативы трудоёмкости (билайн)</h2>
+
+    <p>В решении строго имплементированы нормативы технологических операций ПАО «ВымпелКом» (из файла <code>431_Нормативы.xlsx</code>):</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Категория заявки</th>
+          <th>Техн. работы</th>
+          <th>Документы</th>
+          <th>Итого $d_i$</th>
+          <th>Навык</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Подключение Базовая (FTTB/FMC)</strong></td>
+          <td>60 мин</td>
+          <td>10 мин</td>
+          <td><strong>70 мин</strong></td>
+          <td><code>connection</code></td>
+        </tr>
+        <tr>
+          <td><strong>Подключение 1 Гбит/с (4 пары UTP)</strong></td>
+          <td>75 мин</td>
+          <td>15 мин</td>
+          <td><strong>90 мин</strong></td>
+          <td><code>connection</code> (гигабит)</td>
+        </tr>
+        <tr>
+          <td><strong>Авария на ТКД (Оптический узел)</strong></td>
+          <td>80 мин</td>
+          <td>0 мин</td>
+          <td><strong>80–120 мин</strong></td>
+          <td><code>accident</code> (только авто)</td>
+        </tr>
+        <tr>
+          <td><strong>Локальная заявка / ремонт</strong></td>
+          <td>30 мин</td>
+          <td>0 мин</td>
+          <td><strong>30 мин</strong></td>
+          <td><code>local_repair</code></td>
+        </tr>
+        <tr>
+          <td><strong>Дозаказ оборудования (роутер/ТВ)</strong></td>
+          <td>10 мин</td>
+          <td>10 мин</td>
+          <td><strong>20 мин</strong></td>
+          <td><code>connection</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p><em>Примечание: норматив на перемещение не фиксируется константой, а динамически рассчитывается для каждой пары точек по дорожному графу OpenStreetMap / 2ГИС.</em></p>
+
+    <!-- ═══════════════ 5. АРХИТЕКТУРА ═══════════════ -->
+    <h2 class="section-title" id="s5"><span class="num">5</span> Архитектура движка оптимизации: 4-Pass + OR-Tools</h2>
+
+    <p>Пайплайн сочетает быстрый конструктивный алгоритм и глобальный локальный поиск:</p>
+
+    <div class="pipeline">
+      <div class="pipeline-step">📥 Входящий CSV-поток заявок округа</div>
+      <div class="pipeline-arrow">⬇</div>
+      <div class="pipeline-step accent">🧠 Иерархический 4-Pass эвристический планировщик</div>
+      <div class="pipeline-arrow">⬇</div>
+      <div class="pipeline-note">Быстрое допустимое начальное решение</div>
+      <div class="pipeline-step">⚙️ Google OR-Tools RoutingModel: Guided Local Search</div>
+      <div class="pipeline-arrow">⬇</div>
+      <div class="pipeline-note">Тёплый старт из 4-Pass + глобальное перераспределение</div>
+      <div class="pipeline-step accent">✅ Лексикографический выбор лучшего плана + валидация</div>
+    </div>
+
+    <h3 id="s51">5.1. Этап 1: Иерархический 4-проходный планировщик (Warm-Start Generator)</h3>
+    <p>Разделяет заявки на 4 очереди приоритетов (Аварии на ТКД → Подключения FTTB/FMC → Локальные ремонты → Дозаказы) и строит гарантированно допустимое базовое расписание со строгим соблюдением условий $S_{ik} + d_i \le b_i$ и возврата в депо до конца смены. После каждой вставки маршрут пересчитывается с нуля (<code>recompute_route_schedule</code>).</p>
+
+    <h3 id="s52">5.2. Этап 2: Многомашинная модель Google OR-Tools RoutingModel</h3>
+    <p>Модуль <code>solve_vrptw_ortools_routing</code> строит единую модель для всех инженеров и заявок (<code>pywrapcp.RoutingModel</code>):</p>
+
+    <div class="num-item"><div class="n">1</div><div class="content"><strong>Граф и стоимости:</strong> узел $0$ — депо округа, узлы $1..N$ — заявки. Для каждого вида транспорта заранее считаются матрицы расстояний $\text{dist}^k_{ij}$ (м) и переходов по времени $t^k_{ij} + d_i$; у каждого инженера $k$ своя матрица по его транспорту.</div></div>
+
+    <div class="num-item"><div class="n">2</div><div class="content"><strong>Ограничения модели:</strong>
+      <ul>
+        <li><strong>Временные окна:</strong> время начала работ $S_i \in [a_i,\ b_i - d_i]$ (измерение <code>Time</code>, ожидание разрешено);</li>
+        <li><strong>Смена и возврат:</strong> старт в $T_{\text{start}} = 480$ (08:00), прибытие в депо не позже $T_{\text{end}} = 1320$ (22:00);</li>
+        <li><strong>Навыки:</strong> заявку может обслужить только инженер с нужным допуском (<code>VehicleVar(i) ∈ Allowed_i</code>);</li>
+        <li><strong>Вместимость:</strong> $\sum_i q_i \le Q_k$ (измерение <code>Capacity</code>);</li>
+        <li><strong>Невыполнимые заявки</strong> исключаются из модели с объяснением.</li>
+      </ul>
+    </div></div>
+
+    <div class="num-item"><div class="n">3</div><div class="content"><strong>Целевая функция:</strong>
+    $$\min \left( 10^7 \sum_{i=1}^N (1 - z_i) + 10^5 \sum_{k=1}^M y_k + \sum_{k} \sum_{(i,j) \in \text{route}_k} \text{dist}^k_{ij} \right)$$
+    где $z_i$ — факт выполнения заявки (штраф через <code>AddDisjunction</code>), $y_k$ — вывод инженера (<code>SetFixedCostOfVehicle</code>). Вывод инженера эквивалентен 100 км пробега.</div></div>
+
+    <div class="num-item"><div class="n">4</div><div class="content"><strong>Тёплый старт:</strong> решение 4-Pass передается в OR-Tools через <code>ReadAssignmentFromRoutes</code> и улучшается Guided Local Search. Итоговый план выбирается лексикографически: больше заявок → меньше инженеров → меньше км.</div></div>
+
+    <div class="num-item"><div class="n">5</div><div class="content"><strong>Независимая валидация (<code>validate_solution</code>):</strong> пересчёт всех маршрутов с нуля — окна, смены, навыки, вместимость, отсутствие дублей, полнота учёта и сверка пробега.</div></div>
+
+    <!-- ═══════════════ 6. ТРАНСПОРТНЫЙ ГРАФ ═══════════════ -->
+    <h2 class="section-title" id="s6"><span class="num">6</span> Мультимодальный транспортный граф и учёт пробок</h2>
+
+    <p>В модели реализованы 4 класса мобильности выездных инженеров:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Тип транспорта</th>
+          <th>Скорость</th>
+          <th>Коэфф. изв.</th>
+          <th>Вместимость</th>
+          <th>Реакция на заторы</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>🚗 Автомобиль</strong> (<code>car</code>)</td>
+          <td>35.0 км/ч</td>
+          <td>1.43</td>
+          <td>30 ед.</td>
+          <td>Граф OSRM; риск заторов показывается диспетчеру</td>
+        </tr>
+        <tr>
+          <td><strong>🚌 Общ. транспорт</strong> (<code>transit</code>)</td>
+          <td>20.0 км/ч</td>
+          <td>1.32</td>
+          <td>18 ед.</td>
+          <td>Масштабируется от автомобильного графа</td>
+        </tr>
+        <tr>
+          <td><strong>🚲 Велосипед / СИМ</strong> (<code>bicycle</code>)</td>
+          <td>16.0 км/ч</td>
+          <td>1.29</td>
+          <td>14 ед.</td>
+          <td>Велограф FOSSGIS: велодорожки, тротуары, дворы</td>
+        </tr>
+        <tr>
+          <td><strong>🚶 Пеший</strong> (<code>foot</code>)</td>
+          <td>4.8 км/ч</td>
+          <td>1.25</td>
+          <td>10 ед.</td>
+          <td>Пешеходный граф FOSSGIS: тротуары, переходы, арки</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Время перемещения и модель трафика</h3>
+    <p>Время в пути рассчитывается детерминированно от длины маршрута по графу и профильной скорости транспорта:</p>
+    $$t_{ij}^k = \max\left(1,\ \operatorname{round}\left(\frac{c_{ij}^k}{v_{\text{mode}(k)}} \cdot 60\right)\right) \ \text{[мин]}$$
+
+    <p>Статистическая модель заторов (утренний пик 07:30–10:00, вечерний 17:30–19:30) реализована как <b>индикатор для диспетчера в интерфейсе</b>, а не как множитель внутри оптимизатора:</p>
+    $$K_{\text{traffic}}(T) = 1.0 + K_{\text{peak}} \cdot \left(1.0 - \frac{|T - T_{\text{peak}}|}{\Delta T}\right)$$
+
+    <p>Она подсвечивает часы, в которые автомобильные плечи рискованны, но <b>не входит в $t_{ij}^k$</b>. Это сознательное решение: оптимизатор и встроенный движок интерфейса обязаны давать одно и то же время для одного маршрута, иначе пересчёт плана при инцидентах находит «нарушения» на ровном месте.</p>
+
+    <!-- ═══════════════ 7. ВЕБ-СЕРВИС ═══════════════ -->
+    <h2 class="section-title" id="s7"><span class="num">7</span> Продвинутый функционал веб-сервиса (Бонусные критерии ТЗ)</h2>
+
+    <h3 id="s71">7.1. Модуль предиктивного контроля рисков (SLA Risk Buffer)</h3>
+    <p>Для каждой остановки в расписании система вычисляет резерв времени до срыва клиентского окна:</p>
+    $$\text{Buffer}_i = b_i - T_{\text{arr}, i}$$
+
+    <div class="sla-indicators">
+      <div class="sla-card green">
+        <div class="icon">🟢</div>
+        <div class="title">SLA: +35м</div>
+        <div class="desc">Безопасно — запас &gt; 30 мин</div>
+      </div>
+      <div class="sla-card yellow">
+        <div class="icon">🟡</div>
+        <div class="title">SLA: +18м</div>
+        <div class="desc">Внимание — запас 15–30 мин</div>
+      </div>
+      <div class="sla-card red">
+        <div class="icon">🔴</div>
+        <div class="title">Риск: +8м</div>
+        <div class="desc">Критический — запас &lt; 15 мин</div>
+      </div>
+    </div>
+
+    <h3 id="s72">7.2. Интерактивное ручное переназначение заявок (Manual Dispatch)</h3>
+    <p>Диспетчер может кликнуть на кнопку <b><code>⇄ Передать</code></b> у любой заявки:</p>
+    <ul class="feature-list">
+      <li>Открывается модальное окно с выбором бригады.</li>
+      <li>Функция <strong>Live Feasibility</strong> проверяет выполнимость на лету: зелёный индикатор показывает новое время прибытия и дельту пробега, красный блокирует передачу при нехватке смены или несовпадении навыков.</li>
+      <li>При подтверждении обе цепочки мгновенно пересчитываются с перерисовкой треков на карте.</li>
+    </ul>
+
+    <h3 id="s73">7.3. Официальный путевой лист инженера (Печатная форма)</h3>
+    <p>Кнопка <b><code>🖨️ Путевой лист</code></b> генерирует документ оперативного наряда по стандарту ПАО «ВымпелКом»:</p>
+    <ul class="feature-list">
+      <li>Фирменная шапка, реквизиты, смена, имя бригады, закреплённый транспорт и адрес склада.</li>
+      <li>Спецификация полученного перед выездом оборудования.</li>
+      <li>Таблица маршрута: время прибытия, адрес, тип работ, норматив, поля для отметок и подписи клиента.</li>
+      <li>Оптимизированные стили <code>@media print</code> для чистой печати в A4 или экспорт в PDF.</li>
+    </ul>
+
+    <h3 id="s74">7.4. Динамическое перепланирование при инцидентах</h3>
+    <p>Сервис поддерживает все 3 обязательных сценария ТЗ:</p>
+    <div class="num-item"><div class="n">1</div><div class="content"><strong>Отмена клиентом на ходу:</strong> заявка удаляется, расписание бригады мгновенно сжимается без технологического простоя.</div></div>
+    <div class="num-item"><div class="n">2</div><div class="content"><strong>Внезапная поломка транспорта:</strong> оставшиеся заявки сошедшего с линии инженера оперативно перераспределяются между соседними бригадами района.</div></div>
+    <div class="num-item"><div class="n">3</div><div class="content"><strong>Срочная авария на ТКД:</strong> авария вклинивается в график ближайшей квалифицированной авто-бригады со сдвигом несрочных задач.</div></div>
+
+    <h3 id="s75">7.5. Модуль объяснимого искусственного интеллекта (Explainable AI, XAI)</h3>
+    <p>Кнопка <b><code>💡 Объяснение</code></b> формирует структурированное текстовое обоснование:</p>
+    <ul class="feature-list">
+      <li>Почему выбран именно этот специалист (допуск, ближайшая позиция, минимальный прирост пути).</li>
+      <li>Проверенные ограничения (клиентское окно, лимит смены, оборудование).</li>
+      <li>Географическая связность (предыдущая и следующая остановка).</li>
+    </ul>
+
+  </div><!-- / doc-body -->
+
+  <!-- ═══════════════ FOOTER ═══════════════ -->
+  <div class="stripe"></div>
+  <div class="doc-footer">
+    <div class="brand">билайн бизнес</div>
+    <div class="copy">ПАО «ВымпелКом» • ЛЦТ 2026 • Задача №3</div>
+  </div>
+
+</div><!-- / doc -->
+
+</body>
+</html>
