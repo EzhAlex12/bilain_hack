@@ -1181,7 +1181,7 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
 def solve_vrptw_ortools_routing(
     requests: List[Request],
     engineers: List[Engineer],
-    time_limit_sec: float = 3.0,
+    time_limit_sec: float = 15.0,
     warm_routes: Optional[List[Route]] = None,
 ) -> Tuple[List[Route], List[Request], str]:
     """
@@ -1371,7 +1371,7 @@ def optimize_routes_with_ortools(
     routes: List[Route],
     requests: Optional[List[Request]] = None,
     engineers: Optional[List[Engineer]] = None,
-    time_limit_sec: float = 3.0,
+    time_limit_sec: float = 15.0,
 ) -> Tuple[List[Route], List[Request], str]:
     """
     Обертка над оптимизатором. Возвращает (маршруты, невыполненные заявки, статус) —
@@ -1531,11 +1531,16 @@ def evaluate_dataset(csv_path: str):
     engineers = build_engineers_for_dataset(requests, depot_coords, brigade_names, dataset_name=base_name)
 
     # 1. 4-Pass оптимизация
-    opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
+    warm_routes, warm_dropped = run_4pass_optimization(requests, engineers)
+
+    # Снимок метрик до полировки: отделяет вклад эвристики от вклада GLS
+    warm_staff = len(warm_routes)
+    warm_assigned_count = sum(len(r.visits) for r in warm_routes)
+    warm_km = sum(r.total_km for r in warm_routes)
 
     # 2. Оптимизация через Google OR-Tools
     opt_routes, opt_dropped, ortools_status_str = optimize_routes_with_ortools(
-        opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
+        warm_routes, requests=requests, engineers=engineers, time_limit_sec=15.0
     )
 
     # 3. Baseline FIFO
@@ -1562,14 +1567,18 @@ def evaluate_dataset(csv_path: str):
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")
     print(f"  • Ремонты:     {sum(1 for r in requests if r.req_type in ('repair', 'local_repair'))}")
     print(f"  • Дозаказы:    {sum(1 for r in requests if r.req_type == 'extra_order')}")
-    print("-" * 95)
-    print(f"{'Метрика эффективности':<32} | {'Baseline (FIFO)':<18} | {'VRP Оптимизатор':<18} | {'Выигрыш / Эффект':<18}")
-    print("-" * 95)
-    print(f"{'Задействовано инженеров':<32} | {base_staff:<18} | {opt_staff:<18} | {-staff_gain:+.1f}% персонала")
-    print(f"{'Суммарный дневной пробег':<32} | {base_km:<15.1f} км | {opt_km:<15.1f} км | {-km_gain:+.1f}% км")
-    print(f"{'Выполнено заявок':<32} | {base_assigned_count:<18} | {opt_assigned_count:<18} | +{opt_assigned_count - base_assigned_count} заявок")
-    print(f"{'Не назначено заявок':<32} | {len(base_dropped):<18} | {len(opt_dropped):<18} | {len(base_dropped) - len(opt_dropped)} спасено")
-    print("-" * 95)
+    gls_km_gain = ((warm_km - opt_km) / warm_km * 100) if warm_km > 0 else 0
+    print("-" * 113)
+    print(f"{'Метрика эффективности':<32} | {'Baseline (FIFO)':<18} | {'4-Pass (эвристика)':<18} | {'+ OR-Tools (GLS)':<18} | {'Итог vs Baseline':<18}")
+    print("-" * 113)
+    print(f"{'Задействовано инженеров':<32} | {base_staff:<18} | {warm_staff:<18} | {opt_staff:<18} | {-staff_gain:+.1f}% персонала")
+    print(f"{'Суммарный дневной пробег':<32} | {base_km:<15.1f} км | {warm_km:<15.1f} км | {opt_km:<15.1f} км | {-km_gain:+.1f}% км")
+    print(f"{'Выполнено заявок':<32} | {base_assigned_count:<18} | {warm_assigned_count:<18} | {opt_assigned_count:<18} | +{opt_assigned_count - base_assigned_count} заявок")
+    print(f"{'Не назначено заявок':<32} | {len(base_dropped):<18} | {len(warm_dropped):<18} | {len(opt_dropped):<18} | {len(base_dropped) - len(opt_dropped)} спасено")
+    print("-" * 113)
+    print(f"Вклад полировки OR-Tools поверх 4-Pass: бригады {opt_staff - warm_staff:+d}, "
+          f"пробег {opt_km - warm_km:+.1f} км ({-gls_km_gain:+.1f}%)")
+    print("-" * 113)
 
 
 def main():

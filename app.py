@@ -94,7 +94,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     ortools_status = '4-Pass Feasible (OR-Tools не установлен)'
     if solver.HAS_ORTOOLS:
         opt_routes, opt_dropped, ortools_status = solver.optimize_routes_with_ortools(
-            opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
+            opt_routes, requests=requests, engineers=engineers, time_limit_sec=15.0
         )
 
     # 3. Baseline FIFO

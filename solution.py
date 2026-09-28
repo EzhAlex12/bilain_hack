@@ -30,13 +30,17 @@ from vrptw_4pass_solver import (
     validate_solution,
 )
 
+# Лимит на полировку Guided Local Search. На 3 с выигрыш ~17% км, на 15 с ~20%,
+# дальше плато: 60 с добавляют ещё 0.1%.
+ORTOOLS_TIME_LIMIT_SEC = 15.0
+
 
 def evaluate_dataset(csv_path: str) -> None:
     """Загружает датасет, оптимизирует маршруты и печатает сравнительную таблицу."""
     base_name = os.path.basename(csv_path)
-    print("\n" + "=" * 95)
+    print("\n" + "=" * 113)
     print(f"  ОБРАБОТКА ДАТАСЕТА: {base_name}")
-    print("=" * 95)
+    print("=" * 113)
 
     requests, depot_coords, depot_addr, brigade_names = load_dataset(csv_path)
 
@@ -49,11 +53,17 @@ def evaluate_dataset(csv_path: str) -> None:
     reset_leg_stats()
 
     # 1. 4-Pass оптимизация (гарантированное допустимое решение)
-    opt_routes, opt_dropped = run_4pass_optimization(requests, engineers)
+    warm_routes, warm_dropped = run_4pass_optimization(requests, engineers)
+
+    # Снимок метрик до полировки: без него в таблице не видно, что дала эвристика,
+    # а что — Guided Local Search поверх неё
+    warm_staff = len(warm_routes)
+    warm_assigned = sum(len(r.visits) for r in warm_routes)
+    warm_km = sum(r.total_km for r in warm_routes)
 
     # 2. Глобальная оптимизация через Google OR-Tools RoutingModel (теплый старт из 4-Pass)
     opt_routes, opt_dropped, ortools_status_str = optimize_routes_with_ortools(
-        opt_routes, requests=requests, engineers=engineers, time_limit_sec=3.0
+        warm_routes, requests=requests, engineers=engineers, time_limit_sec=ORTOOLS_TIME_LIMIT_SEC
     )
 
     # 3. Baseline FIFO для сравнения
@@ -68,6 +78,7 @@ def evaluate_dataset(csv_path: str) -> None:
     base_staff = len(base_routes)
     staff_gain = ((base_staff - opt_staff) / base_staff * 100) if base_staff > 0 else 0
     km_gain = ((base_km - opt_km) / base_km * 100) if base_km > 0 else 0
+    gls_km_gain = ((warm_km - opt_km) / warm_km * 100) if warm_km > 0 else 0
 
     # Валидация
     val = validate_solution(opt_routes, requests, engineers, unassigned=opt_dropped)
@@ -87,14 +98,17 @@ def evaluate_dataset(csv_path: str) -> None:
     print(f"  • Подключения: {sum(1 for r in requests if r.req_type == 'connection')}")
     print(f"  • Ремонты:     {sum(1 for r in requests if r.req_type == 'repair')}")
     print(f"  • Дозаказы:    {sum(1 for r in requests if r.req_type == 'extra_order')}")
-    print("-" * 95)
-    print(f"{'Метрика эффективности':<32} | {'Baseline (FIFO)':<18} | {'4-Pass Optimizer':<18} | {'Выигрыш / Эффект':<18}")
-    print("-" * 95)
-    print(f"{'Задействовано инженеров':<32} | {base_staff:<18} | {opt_staff:<18} | {-staff_gain:+.1f}% персонала")
-    print(f"{'Суммарный дневной пробег':<32} | {base_km:<15.1f} км | {opt_km:<15.1f} км | {-km_gain:+.1f}% км")
-    print(f"{'Выполнено заявок':<32} | {base_assigned:<18} | {opt_assigned:<18} | +{opt_assigned - base_assigned} заявок")
-    print(f"{'Не назначено заявок':<32} | {len(base_dropped):<18} | {len(opt_dropped):<18} | {len(base_dropped) - len(opt_dropped)} спасено")
-    print("-" * 95)
+    print("-" * 113)
+    print(f"{'Метрика эффективности':<32} | {'Baseline (FIFO)':<18} | {'4-Pass (эвристика)':<18} | {'+ OR-Tools (GLS)':<18} | {'Итог vs Baseline':<18}")
+    print("-" * 113)
+    print(f"{'Задействовано инженеров':<32} | {base_staff:<18} | {warm_staff:<18} | {opt_staff:<18} | {-staff_gain:+.1f}% персонала")
+    print(f"{'Суммарный дневной пробег':<32} | {base_km:<15.1f} км | {warm_km:<15.1f} км | {opt_km:<15.1f} км | {-km_gain:+.1f}% км")
+    print(f"{'Выполнено заявок':<32} | {base_assigned:<18} | {warm_assigned:<18} | {opt_assigned:<18} | +{opt_assigned - base_assigned} заявок")
+    print(f"{'Не назначено заявок':<32} | {len(base_dropped):<18} | {len(warm_dropped):<18} | {len(opt_dropped):<18} | {len(base_dropped) - len(opt_dropped)} спасено")
+    print("-" * 113)
+    print(f"Вклад полировки OR-Tools поверх 4-Pass (лимит {ORTOOLS_TIME_LIMIT_SEC:g} с): "
+          f"бригады {opt_staff - warm_staff:+d}, пробег {opt_km - warm_km:+.1f} км ({-gls_km_gain:+.1f}%)")
+    print("-" * 113)
 
     print("\n--- Пример расписания 1-го инженера (Explainable AI) ---")
     if opt_routes:
@@ -126,11 +140,11 @@ def main() -> None:
         print("CSV файлы не найдены. Укажите путь к CSV аргументом командной строки.")
         return
 
-    print("=" * 95)
+    print("=" * 113)
     print("  ХАКАТОН ЛЦТ 2026 | ЗАДАЧА №3: БИЛАЙН БИЗНЕС")
     print("  Тестирование 4-проходной модели маршрутизации на реальных датасетах")
     print(f"  Движок: {'Google OR-Tools + Эвристика' if HAS_ORTOOLS else 'Встроенный чистый Python VRPTW'}")
-    print("=" * 95)
+    print("=" * 113)
 
     for path in csv_files:
         if "контрольное" in path.lower():
