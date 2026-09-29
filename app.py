@@ -34,9 +34,12 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
             continue
         if not req_id or not (row.get("Тип заявки BK") or "").strip():
             continue
+        if solver.is_cancelled_row(row):
+            continue
         raw_rows.append(row)
 
     requests: list[solver.Request] = []
+    seen_ids: dict = {}
     for row in raw_rows:
         bk_type = (row.get("Тип заявки BK") or "").strip()
         req_type = solver.BK_TYPE_MAP.get(bk_type, "repair")
@@ -52,7 +55,7 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
 
         requests.append(
             solver.Request(
-                id=row["Заявка"],
+                id=solver.unique_request_id(row["Заявка"].strip(), seen_ids),
                 lat=lat,
                 lon=lon,
                 req_type=req_type,
@@ -116,7 +119,12 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     # Досчёт дорожного графа для точек этого файла: без него плечи вне кеша
     # считались бы по прямой. Сети нет — считаем на приближении и честно это показываем.
     points = [(e.home_lat, e.home_lon) for e in engineers] + [(r.lat, r.lon) for r in requests]
-    prefetch = solver.prefetch_osrm(points, {e.transport for e in engineers}, timeout=20)
+    # Внутри HTTP-запроса досчитываем только то, что укладывается в один запрос /table на граф
+    # (до 100 точек), и с коротким таймаутом: иначе файл на сотни точек ждал бы публичный OSRM
+    # минутами, а браузер обрывал бы запрос раньше. Большие файлы досчитывает build_osrm_cache.py.
+    osrm_graphs = {("car" if e.transport == "transit" else e.transport) for e in engineers} & set(solver.OSRM_TABLE_URLS)
+    prefetch = solver.prefetch_osrm(points, {e.transport for e in engineers}, timeout=10,
+                                    max_requests=len(osrm_graphs))
     solver.reset_leg_stats()
 
     # 1. 4-Pass Optimizer (Гарантированное допустимое решение)
@@ -256,6 +264,9 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "transport": eng.transport,
             "color": color,
             "skills": list(eng.skills),
+            # Без региона фронтенд считал пригородные бригады московскими: заявку из Каширы
+            # нельзя было переназначить каширской бригаде, а московскую — можно
+            "region": eng.region,
             "capacity": eng.equipment_capacity,
             "shiftStart": eng.shift_start_min,
             "shiftEnd": eng.shift_end_min,
@@ -267,6 +278,36 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "finishTime": r.finish_time_min,
             "totalKm": round(r.total_km, 1),
             "totalDriveMin": r.total_travel_min
+        })
+
+    # Резерв: бригады пула без заявок в плане. Фронтенд выводит их на линию при инцидентах
+    # (поломка, авария, ручное переназначение) — иначе заявки сломавшейся бригады
+    # уходили в невыполненные при свободной бригаде того же района
+    active_ids = {r.engineer.id for r in opt_routes}
+    reserve_engineers = []
+    for k, eng in enumerate(e for e in engineers if e.id not in active_ids):
+        reserve_engineers.append({
+            "id": eng.id,
+            "name": eng.id,
+            "role": ("🚗 Авто-инженер (Аварийщик)" if "emergency" in eng.skills and eng.transport == "car" else
+                     ("🚗 Авто-инженер" if eng.transport == "car" else
+                      ("🚌 Инженер на общественном транспорте" if eng.transport == "transit" else
+                       ("🚲 Вело-инженер (СИМ)" if eng.transport == "bicycle" else "🚶 Пеший специалист")))),
+            "transport": eng.transport,
+            "color": colors[(len(opt_routes) + k) % len(colors)],
+            "skills": list(eng.skills),
+            "region": eng.region,
+            "capacity": eng.equipment_capacity,
+            "shiftStart": eng.shift_start_min,
+            "shiftEnd": eng.shift_end_min,
+            "startCoords": [eng.home_lat, eng.home_lon],
+            "tasks": [],
+            "schedule": [],
+            "returnKm": 0,
+            "returnMin": 0,
+            "finishTime": eng.shift_start_min,
+            "totalKm": 0,
+            "totalDriveMin": 0
         })
 
     frontend_unassigned = []
@@ -299,9 +340,19 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "reason": reason
         })
 
+    # Статистику плеч снимаем до построения матрицы для фронтенда: иначе N^2 её пар
+    # попадали в leg_stats и доля «по графу / приближённо» описывала не решение, а матрицу
+    legs_quality = solver.leg_stats()
+
     # Модель перемещений решателя: фронтенд пересчитывает серверный план (инциденты, ручное
-    # переназначение) по тем же расстояниям и скоростям, что и vrptw_4pass_solver.py
-    points = [list(depot_coords)] + [[r.lat, r.lon] for r in requests]
+    # переназначение) по тем же расстояниям и скоростям, что и vrptw_4pass_solver.py.
+    # Точки старта — все базы бригад: склад округа и базы городов Подмосковья
+    # (без них плечи пригородных бригад в JS считались приближённо, не как на сервере)
+    points = []
+    for p in [list(depot_coords)] + [[e.home_lat, e.home_lon] for e in engineers]:
+        if p not in points:
+            points.append(p)
+    points += [[r.lat, r.lon] for r in requests]
     travel_model = {
         "points": points,
         "speed": {t: solver.AVG_SPEED_KMH[t] for t in {e.transport for e in engineers}},
@@ -313,6 +364,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
 
     frontend_solution = {
         "engineers": frontend_engineers,
+        "reserveEngineers": reserve_engineers,
         "unassigned": frontend_unassigned,
         "totalKm": opt_km,
         "totalDrive": sum(r.total_travel_min for r in opt_routes),
@@ -331,7 +383,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
         "engine": "Google OR-Tools (VRPTW)" if solver.HAS_ORTOOLS else "4-Pass Solver",
         "ortools_status": ortools_status,
         "distance_quality": {
-            "legs": solver.leg_stats(),
+            "legs": legs_quality,
             "winding_factors": solver._CALIBRATED_WINDING or solver.WINDING_FACTORS,
             "geocoded": geo_osm,
             "geocoded_total": len(requests),
@@ -367,6 +419,14 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
 
 
 class Handler(BaseHTTPRequestHandler):
+    def handle(self):
+        # Браузер обрывает запрос по таймауту или при перезагрузке страницы, а сервер
+        # досчитывает и пишет ответ в закрытый сокет — это не ошибка сервера, трейсбек не нужен
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -474,7 +534,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             try:
-                requests, depot_coords, depot_addr, brigade_names = parse_csv_content(csv_text)
+                try:
+                    requests, depot_coords, depot_addr, brigade_names = parse_csv_content(csv_text)
+                except (ValueError, KeyError) as e:
+                    # Ошибка формата файла — это 400 с понятным текстом, а не падение сервера
+                    self.send_json_error(400, f"Не удалось разобрать CSV: {e}")
+                    return
                 if not requests:
                     self.send_json_error(400, "В CSV-файле не найдено строк с заявками в формате кейса")
                     return
@@ -502,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
                     time_limit_sec = float(query.get("time_limit", [""])[0])
                 except ValueError:
                     time_limit_sec = solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC
+                if time_limit_sec != time_limit_sec:   # nan проходит float() и ломал min/max
+                    time_limit_sec = solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC
                 time_limit_sec = min(max(time_limit_sec, 1.0), 120.0)
                 res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names,
                                         transport_mode=transport_mode, traffic_enabled=traffic_enabled,
@@ -513,6 +580,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_cors_headers()
                 self.end_headers()
                 self.wfile.write(json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            except (BrokenPipeError, ConnectionResetError):
+                # Клиент ушёл, пока шёл расчёт: отвечать некому, это не ошибка решателя
+                return
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -531,7 +601,14 @@ def run_server(port=8000):
     print(f"\n=======================================================")
     print(f"  ВЕБ-СЕРВИС ПЛАНИРОВАНИЯ МАРШРУТОВ ИНЖЕНЕРОВ ЗАПУЩЕН")
     print(f"  Откройте браузер: http://localhost:{port}")
-    print(f"=======================================================\n")
+    if solver.HAS_ORTOOLS:
+        print(f"  Движок: Google OR-Tools доступен")
+    else:
+        # Без этого сервер молча работал без OR-Tools, а кнопка в интерфейсе не включалась
+        print(f"  ВНИМАНИЕ: в этом Python нет пакета ortools ({sys.executable}),")
+        print(f"  режим OR-Tools в интерфейсе будет недоступен.")
+        print(f"  Установите зависимости: {sys.executable} -m pip install -r requirements.txt")
+    print(f"=======================================================\n", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

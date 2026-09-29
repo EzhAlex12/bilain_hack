@@ -32,6 +32,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -289,12 +290,25 @@ def load_osrm_cache():
             _OSRM_CACHE = {}
 
 
+_OSRM_CACHE_SAVE_LOCK = threading.Lock()
+
+
 def save_osrm_cache():
-    try:
-        with open(_OSRM_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_OSRM_CACHE, f, ensure_ascii=False)
-    except Exception:
-        pass
+    # Атомарная запись: снимок кеша, временный файл, затем os.replace. Раньше два потока
+    # веб-сервера могли писать файл одновременно, и битый JSON при следующем запуске
+    # молча превращался в пустой кеш
+    with _OSRM_CACHE_SAVE_LOCK:
+        tmp_path = _OSRM_CACHE_FILE + ".tmp"
+        try:
+            snapshot = dict(_OSRM_CACHE)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False)
+            os.replace(tmp_path, _OSRM_CACHE_FILE)
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 load_osrm_cache()
@@ -314,8 +328,42 @@ def osrm_cache_key(lat1: float, lon1: float, lat2: float, lon2: float, transport
     return f"{lat1:.4f},{lon1:.4f}_{lat2:.4f},{lon2:.4f}_{transport}"
 
 
+class _ThreadLocalLegStats:
+    """
+    Счётчики плеч «граф / выведено / приближено» — свои у каждого потока.
+    app.py работает на ThreadingHTTPServer: при общем словаре два одновременных расчёта
+    (например, быстрое переключение вида транспорта) сбрасывали и смешивали чужую статистику.
+    Интерфейс словаря сохранён, поэтому код ниже не меняется.
+    """
+    _KEYS = ("graph", "derived", "approx")
+
+    def __init__(self) -> None:
+        self._local = threading.local()
+
+    def _data(self) -> Dict[str, int]:
+        data = getattr(self._local, "data", None)
+        if data is None:
+            data = self._local.data = dict.fromkeys(self._KEYS, 0)
+        return data
+
+    def __getitem__(self, key: str) -> int:
+        return self._data()[key]
+
+    def __setitem__(self, key: str, value: int) -> None:
+        self._data()[key] = value
+
+    def __iter__(self):
+        return iter(self._KEYS)
+
+    def keys(self):
+        return self._KEYS
+
+    def values(self):
+        return self._data().values()
+
+
 # Доля плеч, посчитанных не по дорожному графу, — нужна и для честной пометки в UI
-_LEG_STATS = {"graph": 0, "derived": 0, "approx": 0}
+_LEG_STATS = _ThreadLocalLegStats()
 _CALIBRATED_WINDING: Dict[str, float] = {}
 
 TRANSIT_FROM_CAR = (
@@ -577,6 +625,7 @@ def prefetch_osrm(
     save: bool = True,
     quiet: bool = True,
     timeout: int = 60,
+    max_requests: int = MAX_PREFETCH_REQUESTS,
 ) -> Dict[str, Any]:
     """
     Досчитывает матрицы расстояний по графу для набора точек и кладёт их в кеш.
@@ -601,17 +650,19 @@ def prefetch_osrm(
     # тысяч. Демо-серверы отвечают на такой залп 429, а загрузка файла висит без
     # признаков жизни. Сверх бюджета честно считаем приближённо: доля плеч, взятых
     # не из графа, видна в leg_stats() и выводится в консоли и в API.
-    chunks = -(-len(uniq) // (MAX_TABLE_COORDS // 2))
+    # Число запросов считаем так же, как osrm_table_requests: до MAX_TABLE_COORDS точек
+    # хватает одного запроса на граф, дальше матрица режется на блоки по половине лимита
+    chunks = 1 if len(uniq) <= MAX_TABLE_COORDS else -(-len(uniq) // (MAX_TABLE_COORDS // 2))
     graph_transports = {("car" if t == "transit" else t) for t in transports}
     planned = chunks * chunks * len(graph_transports & set(OSRM_TABLE_URLS))
-    if planned > MAX_PREFETCH_REQUESTS:
+    if planned > max_requests:
         return {
             "points": len(uniq),
             "missing": {},
             "fetched": {},
             "errors": {},
             "status": (f"пропущен: {len(uniq)} точек потребовали бы {planned} запросов "
-                       f"к публичному OSRM при лимите {MAX_PREFETCH_REQUESTS}; "
+                       f"к публичному OSRM при лимите {max_requests}; "
                        f"расстояния считаются приближённо"),
         }
 
@@ -871,9 +922,33 @@ def geocode_district_cached(address: str, district: str) -> Tuple[float, float]:
 
 
 def parse_minutes(dt_str: str) -> int:
-    time_part = dt_str.strip().split(" ")[1]
-    hh, mm = time_part.split(":")
-    return int(hh) * 60 + int(mm)
+    # Как parseMinutesStr() во фронтенде: время — последний токен, дата необязательна
+    # ("17.08.2026 20:00" и "20:00" дают одно и то же; раньше без даты был IndexError)
+    parts = (dt_str or "").split()
+    try:
+        hh, mm = parts[-1].split(":")[:2]
+        return int(hh) * 60 + int(mm)
+    except (IndexError, ValueError):
+        raise ValueError(f"Некорректное время в CSV: «{dt_str}» (ожидается ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ)")
+
+
+def is_cancelled_row(row: Dict[str, str]) -> bool:
+    """
+    Заявка, отменённая клиентом (колонка «Статус BK» в контрольных выгрузках), в план не идёт.
+    Раньше такие строки планировались наравне с живыми, а перенесённая заявка приходила
+    дважды под одним номером: отменённый слот и новый.
+    """
+    return (row.get("Статус BK") or "").strip().lower() == "отменена"
+
+
+def unique_request_id(raw_id: str, seen: Dict[str, int]) -> str:
+    """
+    Номер заявки уникален в плане: повтор получает суффикс «-2», «-3».
+    Без этого две строки склеивались в один узел OR-Tools (ломался тёплый старт)
+    и в один ключ во фронтенде. Зеркало такой же логики в parseCsv() index.html.
+    """
+    seen[raw_id] = seen.get(raw_id, 0) + 1
+    return raw_id if seen[raw_id] == 1 else f"{raw_id}-{seen[raw_id]}"
 
 
 def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str, List[str]]:
@@ -895,6 +970,8 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
                         continue
                     if not req_id or not (row.get("Тип заявки BK") or "").strip():
                         continue
+                    if is_cancelled_row(row):
+                        continue
                     raw_rows.append(row)
             if raw_rows:
                 break
@@ -902,6 +979,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
             continue
 
     requests: List[Request] = []
+    seen_ids: Dict[str, int] = {}
     for row in raw_rows:
         bk_type = (row.get("Тип заявки BK") or "").strip()
         req_type = BK_TYPE_MAP.get(bk_type, "repair")
@@ -917,7 +995,7 @@ def load_dataset(csv_path: str) -> Tuple[List[Request], Tuple[float, float], str
 
         requests.append(
             Request(
-                id=row["Заявка"],
+                id=unique_request_id(row["Заявка"].strip(), seen_ids),
                 lat=lat,
                 lon=lon,
                 req_type=req_type,
