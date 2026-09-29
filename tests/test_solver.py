@@ -100,6 +100,53 @@ def test_api_has_no_request_in_both_routes_and_unassigned(csv_path):
     assert len(routed) + len(unassigned) == len(requests)
     assert res["stats"]["opt_dropped"] == len(unassigned)
 
+    # Бригады несут регион (без него фронтенд считал пригородные бригады московскими),
+    # резерв — бригады пула без заявок, не пересекается с работающими
+    reserve = sol["reserveEngineers"]
+    assert all(e.get("region") for e in sol["engineers"] + reserve)
+    assert all(not e["tasks"] for e in reserve)
+    assert not {e["id"] for e in sol["engineers"]} & {e["id"] for e in reserve}
+
+    # Базы всех бригад есть в модели перемещений: плечи от баз пересчитываются во фронтенде
+    # по тем же числам, что на сервере
+    points = {tuple(p) for p in sol["travelModel"]["points"]}
+    assert all(tuple(e["startCoords"]) in points for e in sol["engineers"] + reserve)
+
+
+CONTROL_DATASETS = sorted(glob.glob(os.path.join(ROOT, "test_dataset", "*Контрольное*.csv")))
+
+
+@pytest.mark.parametrize("csv_path", CONTROL_DATASETS, ids=os.path.basename)
+def test_control_dataset_skips_cancelled_and_has_unique_ids(csv_path):
+    requests, depot, _, brigades = solver.load_dataset(csv_path)
+    ids = [r.id for r in requests]
+    assert len(ids) == len(set(ids))
+
+    engineers = solver.build_engineers_for_dataset(requests, depot, brigades, os.path.basename(csv_path))
+    warm, _ = solver.run_4pass_optimization(requests, engineers)
+    routes, dropped, _ = solver.optimize_routes_with_ortools(
+        warm, requests=requests, engineers=engineers, time_limit_sec=1.0
+    )
+    val = solver.validate_solution(routes, requests, engineers, unassigned=dropped)
+    assert val["is_valid"], val
+
+
+def test_csv_parsing_rules():
+    csv_text = (
+        "Заявка;Тип заявки BK;Статус BK;Тип заявки HD;Начало;Окончание;Район;Адрес;Бригада;Гигабитное подключение\n"
+        "1;Подключение;Отменена;x;17.08.2026 10:00;17.08.2026 12:00;Кузьминки;ул. А, д. 1;;Нет\n"
+        "1;Подключение;Выполнена;x;17.08.2026 14:00;17.08.2026 16:00;Кузьминки;ул. А, д. 1;;Нет\n"
+        "2;Локальная заявка;Выполнена;x;16:00;18:00;Кузьминки;ул. Б, д. 2;;Нет\n"
+        "2;Локальная заявка;Выполнена;x;18:00;20:00;Кузьминки;ул. Б, д. 2;;Нет\n"
+    )
+    requests, _, _, _ = app.parse_csv_content(csv_text)
+    assert [r.id for r in requests] == ["1", "2", "2-2"]          # отменённая строка пропущена
+    assert requests[0].window_start_min == 14 * 60
+    assert requests[1].window_start_min == 16 * 60                # время без даты
+    assert solver.parse_minutes("17.08.2026 09:05") == 545
+    with pytest.raises(ValueError):
+        solver.parse_minutes("когда-нибудь")
+
 
 if __name__ == "__main__":
     print("=" * 70)
