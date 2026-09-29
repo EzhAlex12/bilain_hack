@@ -131,6 +131,24 @@ def test_control_dataset_skips_cancelled_and_has_unique_ids(csv_path):
     assert val["is_valid"], val
 
 
+def test_route_ends_at_last_request_without_return():
+    # ТЗ: «после завершения последней заявки возвращаться на склад не требуется».
+    # Работы заканчиваются ровно в конце смены — обратного пути нет, заявка выполнима
+    engineer = solver.Engineer(id="e", home_lat=55.70, home_lon=37.77, transport="car",
+                               skills={"repair"}, shift_start_min=600, shift_end_min=1320)
+    request = solver.Request(id="late", lat=55.75, lon=37.62, req_type="repair",
+                             window_start_min=1290, window_end_min=1320,
+                             district="Таганский", address="Тестовый адрес")
+    result = solver.recompute_route_schedule(engineer, [request])
+    assert result is not None
+    visits, return_km, return_min, finish = result
+    assert (return_km, return_min) == (0.0, 0)
+    assert finish == visits[-1].service_end_min == 1320
+
+    route = solver.Route(engineer=engineer, visits=visits)
+    assert route.total_km == visits[0].travel_km
+
+
 def test_csv_parsing_rules():
     csv_text = (
         "Заявка;Тип заявки BK;Статус BK;Тип заявки HD;Начало;Окончание;Район;Адрес;Бригада;Гигабитное подключение\n"

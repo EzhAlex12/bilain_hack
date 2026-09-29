@@ -8,11 +8,13 @@ VRPTW-S-C-M: Интеллектуальная система мультимод�
    - Пешеходы перемещаются по тротуарам, пешеходным переходам и сквозным дворовым проходам (извилистость 1.10);
    - Велосипедисты используют велодорожки, тротуары и дворовые зоны (извилистость 1.15);
    - Автомобили используют улично-дорожную сеть (извилистость 1.35);
-   - Утвержденные нормативы времени (Нормативы.xlsx) и смены 08:00–22:00.
+   - Утвержденные нормативы времени (Нормативы.xlsx) и смена (по умолчанию 10:00–22:00, настраивается).
 2. Гарантированный перерасчет расписания (recompute_route_schedule):
    - При любой вставке цепочка визитов пересчитывается с нуля;
-   - Строгий инвариант: ВСЕ работы завершаются строго ДО закрытия окна клиента (service_end <= window_end_min);
-   - Обязательный учет и проверка возврата в депо до конца смены (finish_time <= shift_end_min);
+   - Строгий инвариант: ВСЕ работы завершаются строго ДО закрытия окна клиента (service_end <= window_end_min)
+     и до конца смены;
+   - По ТЗ маршрут заканчивается на последней заявке: возвращаться на склад не требуется,
+     обратный путь не проверяется и в пробег не входит;
    - Устранение любых временных наложений и неконсистентностей.
 3. Двойной движок глобальной оптимизации:
    - Иерархический 4-Pass Insertion Heuristic (гарантированное допустимое решение);
@@ -1186,9 +1188,12 @@ def recompute_route_schedule(
     1. Квалификация: req.req_type in engineer.skills;
     2. Вместимость оборудования: sum(demand) <= capacity;
     3. Строгое временное окно клиента: service_end <= req.window_end_min;
-    4. Рабочая смена мастера: service_end <= engineer.shift_end_min;
-    5. Гарантированный возврат в депо: finish_time <= engineer.shift_end_min.
-    
+    4. Рабочая смена мастера: service_end <= engineer.shift_end_min.
+
+    По ТЗ «после завершения последней заявки возвращаться на склад не требуется»:
+    маршрут заканчивается на последней заявке, обратный путь не проверяется и в пробег
+    не входит (return_km = return_min = 0; поля оставлены ради совместимости API).
+
     Возвращает (visits, return_km, return_min, finish_time_min) или None при нарушении.
     """
     if not request_sequence:
@@ -1236,18 +1241,8 @@ def recompute_route_schedule(
         cur_lat, cur_lon = req.lat, req.lon
         cur_dep_time = end_work
 
-    # Расчет и проверка возврата в депо
-    d_back = road_distance_km(cur_lat, cur_lon, engineer.home_lat, engineer.home_lon, engineer.transport)
-    t_back = travel_time_min(
-        d_back, engineer.transport, engineer.traffic_enabled, cur_dep_time,
-        (cur_lat, cur_lon), (engineer.home_lat, engineer.home_lon),
-    )
-    fin_time = cur_dep_time + t_back
-
-    if fin_time > engineer.shift_end_min:
-        return None
-
-    return visits, round(d_back, 2), t_back, fin_time
+    # Возврат на склад по ТЗ не требуется: день бригады заканчивается вместе с последней заявкой
+    return visits, 0.0, 0, cur_dep_time
 
 
 def try_insert_request(
@@ -1257,7 +1252,7 @@ def try_insert_request(
     """
     Ищет наилучшую позицию вставки заявки в маршрут.
     При КАЖДОЙ попытке вставки маршрут полностью пересчитывается с нуля,
-    гарантируя корректность всех таймингов, расстояний и возврата в депо.
+    гарантируя корректность всех таймингов и расстояний.
     """
     eng = route.engineer
     if req.req_type not in eng.skills or req.region != eng.region:
@@ -1454,8 +1449,8 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
             )
         else:
             reason = (
-                f"Недостижимо даже для свободного инженера: после работ ({fmt_time(end_work)}) возврат в депо "
-                f"({t_m} мин) выходит за конец смены {fmt_time(e0.shift_end_min)}."
+                f"Недостижимо даже для свободного инженера: работы закончились бы в {fmt_time(end_work)}, "
+                f"после конца смены {fmt_time(e0.shift_end_min)}."
             )
     else:
         reason = "График подходящих бригад полностью заполнен: свободный инженер успел бы, но все допущенные мастера заняты в этом окне."
@@ -1482,7 +1477,7 @@ def solve_vrptw_ortools_routing(
     - Раздельные матрицы стоимости и времени под каждый вид транспорта (с учетом тротуаров/велодорожек);
     - Учет грузоподъемности (Capacity);
     - Жесткие временные окна с завершением до конца окна (b_i - d_i);
-    - Ограничение смены и обязательный возврат в депо до 22:00;
+    - Ограничение смены: работы завершаются до её конца; возврат на склад по ТЗ не требуется;
     - Вывод мастера штрафуется фиксированной стоимостью для минимизации штата;
     - Теплый старт из 4-Pass решения.
     """
@@ -1556,6 +1551,16 @@ def solve_vrptw_ortools_routing(
             ) + duration for d, c2 in zip(km_row, points)])
         dist_m[transport] = d_rows
         transit_min[transport] = t_rows
+
+    # По ТЗ возвращаться на склад после последней заявки не требуется. Узлы депо — это
+    # и старт, и финиш маршрута, а посередине маршрута их не посещают, поэтому въезд
+    # в депо = окончание дня: пробег 0, время — только работы в последней точке.
+    # Так финиш маршрута ограничивает концом смены окончание последних работ, а не возврат.
+    for transport in dist_m:
+        for n1 in range(D + N):
+            for n2 in range(D):
+                dist_m[transport][n1][n2] = 0
+                transit_min[transport][n1][n2] = durations[n1]
 
     # 1. Расстояния по видам транспорта
     # RegisterTransitMatrix отдаёт матрицу в C++ целиком. Раньше тут висел
@@ -1729,7 +1734,7 @@ def validate_solution(
     Строгий независимый аудит сформированного расписания:
     - 100% соблюдение окон клиентов (начало работ >= window_start_min, окончание <= window_end_min);
     - Отсутствие наложений во времени между визитами мастеров;
-    - Возврат всех бригад в депо строго до конца смены (22:00);
+    - Окончание всех работ до конца смены (возврат на склад по ТЗ не требуется и не считается);
     - Соответствие навыков (Skills);
     - Вместимость оборудования (Capacity);
     - Уникальность обслуживания каждой заявки;
@@ -1794,16 +1799,9 @@ def validate_solution(
         if demand_acc > eng.equipment_capacity:
             capacity_violations.append(f"{eng.id}: спрос {demand_acc} > вместимости {eng.equipment_capacity}")
 
-        d_back = road_distance_km(cur_lat, cur_lon, eng.home_lat, eng.home_lon, eng.transport)
-        total_km_calc += d_back
-        t_back = travel_time_min(
-            d_back, eng.transport, eng.traffic_enabled, cur_time,
-            (cur_lat, cur_lon), (eng.home_lat, eng.home_lon),
-        )
-        ret_time = cur_time + t_back
-
-        if ret_time > eng.shift_end_min:
-            shift_violations.append(f"{eng.id}: возврат в депо в {fmt_time(ret_time)} > смены {fmt_time(eng.shift_end_min)}")
+        # Маршрут заканчивается на последней заявке: обратный путь в пробег не входит
+        if r.return_km:
+            shift_violations.append(f"{eng.id}: в пробег включён возврат на склад ({r.return_km} км), по ТЗ он не считается")
 
     duplicate_ids = [rid for rid in set(served_ids) if served_ids.count(rid) > 1]
 

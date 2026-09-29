@@ -276,7 +276,9 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
             "returnKm": round(r.return_km, 1),
             "returnMin": r.return_min,
             "finishTime": r.finish_time_min,
-            "totalKm": round(r.total_km, 1),
+            # Точность 0.01 км, как у плеч: при округлении до 0.1 Python и JS расходились
+            # на половинках (24.45 -> 24.4 против 24.5), до десятых округляет только отображение
+            "totalKm": round(r.total_km, 2),
             "totalDriveMin": r.total_travel_min
         })
 
