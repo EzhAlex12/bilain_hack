@@ -18,12 +18,16 @@ import tempfile
 
 try:
     import pytest
+    _SkipException = (pytest.skip.Exception,)
 except ImportError:
+    class _SkipTest(BaseException):
+        pass
+    _SkipException = (_SkipTest,)
+
     class _DummyPytest:
         @staticmethod
         def skip(msg, allow_module_level=False):
-            print(f"  пропущено: {msg}")
-            raise SystemExit(0)
+            raise _SkipTest(msg)
 
         class mark:
             @staticmethod
@@ -266,6 +270,9 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
             print(f"▶ {name} ...", end=" ", flush=True)
-            fn()
-            print("✅ OK")
+            try:
+                fn()
+                print("✅ OK")
+            except _SkipException as e:
+                print(f"  пропущено: {e}")
     print("\n✅ Фронтенд и бэкенд согласованы!")
