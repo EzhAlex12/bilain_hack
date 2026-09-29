@@ -33,6 +33,9 @@ Icon
 .Spotlight-V100
 .Trashes
 
+# Временный файл атомарной записи кеша OSRM
+.osrm_cache.json.tmp
+
 # IDE / Editor
 .idea/
 .vscode/
