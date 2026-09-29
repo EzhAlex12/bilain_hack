@@ -63,9 +63,13 @@ def main(fetch=None, pause_sec: float = 1.0) -> int:
             print(f"  - {d}")
         print("Запустите python3 geocode_addresses.py и повторите сборку.\n")
 
-    csv_files = sorted(glob.glob(os.path.join(root, "test_dataset", "*Синтетические*.csv")))
+    # Все датасеты, а не только синтетические: у контрольных выгрузок свои адреса, и базы
+    # подмосковных бригад (центр тяжести заявок города) у них стоят в других точках.
+    # Пока обходились только "*Синтетические*", у «Юго-восток Контрольное распределение»
+    # не хватало 420 пар на каждый граф и 5% плеч считалось по прямой.
+    csv_files = sorted(glob.glob(os.path.join(root, "test_dataset", "*.csv")))
     if not csv_files:
-        print("Не найдены синтетические датасеты в test_dataset/")
+        print("Не найдены датасеты в test_dataset/")
         return 1
 
     failed = False

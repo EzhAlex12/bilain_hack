@@ -2598,8 +2598,30 @@
       return 'График подходящих бригад полностью заполнен: свободный инженер успел бы, но все допущенные мастера заняты в этом окне.';
     }
 
-    function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames) {
-      activeTravelModel = null; // встроенный движок считает по своей модели (пробки, накладные минуты)
+    // МОДЕЛЬ ПЕРЕМЕЩЕНИЙ, ОБЩАЯ ДЛЯ ДВУХ ДВИЖКОВ
+    // Матрица расстояний с бэкенда зависит только от точек файла и состава парка — но не от
+    // смены, пробок и лимита решателя. Поэтому её достаточно запомнить один раз на вид
+    // транспорта и переиспользовать для встроенного 4-Pass. Без этого KPI «Пробег» сравнивал
+    // план OR-Tools, посчитанный по графу OSM, с планом 4-Pass, посчитанным по прямой с
+    // коэффициентом извилистости, — то есть двумя разными линейками (206.4 км против 164.0 км
+    // на Востоке, тогда как честное сравнение — 215.4 против 164.0).
+    function rememberTravelModel(session, transportMode, res) {
+      const model = res && res.solution && res.solution.travelModel;
+      if (!session || !model) return;
+      if (!session.travelModels) session.travelModels = {};
+      session.travelModels[transportMode] = model;
+    }
+
+    function travelModelFor(session, transportMode) {
+      return (session && session.travelModels && session.travelModels[transportMode]) || null;
+    }
+
+    function solve4Pass(requests, depotCoords, isRemote, transportMode, calcTimeMin, brigadeNames, travelModel) {
+      // Модель перемещений бэкенда, если она уже получена для этого файла и этого парка:
+      // тогда встроенный 4-Pass и планирует, и меряется по расстояниям графа OSM — так же,
+      // как OR-Tools. Модели нет (первый расчёт до ответа сервера, автономный режим из
+      // file://) — как раньше, по прямой с коэффициентом извилистости.
+      activeTravelModel = travelModel || null;
       transportMode = transportMode || globalTransportMode;
       calcTimeMin = calcTimeMin || parseMinutesStr(globalRoutingTime) || 540;
       const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(DEFAULT_POOL_SIZE, brigadeNames.length) : DEFAULT_POOL_SIZE;
@@ -2709,8 +2731,10 @@
     // BASELINE FIFO
     // Как run_baseline_fifo бэкенда: тот же пул, что у оптимизатора; заявки строго по порядку файла,
     // каждая — в конец маршрута первого подходящего инженера
-    function solveBaseline(requests, depotCoords, isRemote, brigadeNames, transportMode) {
-      activeTravelModel = null;
+    function solveBaseline(requests, depotCoords, isRemote, brigadeNames, transportMode, travelModel) {
+      // Та же линейка, что у solve4Pass: иначе выигрыш оптимизатора над Baseline
+      // считался бы по двум разным моделям расстояний
+      activeTravelModel = travelModel || null;
       const count = (brigadeNames && brigadeNames.length > 0) ? Math.max(DEFAULT_POOL_SIZE, brigadeNames.length) : DEFAULT_POOL_SIZE;
       const engineers = createEngineers(count, depotCoords, false, transportMode || globalTransportMode, brigadeNames, requests);
       let assigned = 0;
@@ -3967,6 +3991,7 @@
             if (ortoolsRes && ortoolsRes.solution) {
               if (!session.solutions) session.solutions = {};
               session.solutions[ortoolsCacheKey(modeAtRequest)] = ortoolsRes;
+              rememberTravelModel(session, modeAtRequest, ortoolsRes);
               session.solution = ortoolsRes.solution;
               session.baseline = ortoolsRes.baseline;
               session.engine = ortoolsRes.engine;
@@ -3996,8 +4021,10 @@
           const parsed = parseCsv(session.csvInput);
           const isRemote = parsed.hasSuburbs;
           const timeMin = parseMinutesStr(session.calcTime || globalRoutingTime) || 540;
-          const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, session.transportMode || globalTransportMode, timeMin, parsed.brigadeNames);
-          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, session.transportMode || globalTransportMode);
+          const jsMode = session.transportMode || globalTransportMode;
+          const jsModel = travelModelFor(session, jsMode);
+          const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, jsMode, timeMin, parsed.brigadeNames, jsModel);
+          const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, jsMode, jsModel);
           const res = {
             solution: fastSol,
             baseline: fastBase,
@@ -4094,6 +4121,7 @@
           }, modeAtRequest, trafficEnabledAtRequest, timeMin).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
               session.solutions[ortoolsCacheKey(modeAtRequest, trafficEnabledAtRequest, timeMin)] = ortoolsRes;
+              rememberTravelModel(session, modeAtRequest, ortoolsRes);
               // Ответ идёт секунды: если за это время нажали другую кнопку парка,
               // результат остаётся в кеше, но на экран не попадает
                 if (activeTabId === tabId && globalEngineMode === 'ortools'
@@ -4193,7 +4221,8 @@
     function renderActiveSession() {
       const session = getActiveSession();
       // Решение с бэкенда несёт его модель перемещений — дальше все пересчёты идут по ней
-      activeTravelModel = (session && session.solution && session.solution.travelModel) || null;
+      activeTravelModel = (session && session.solution && session.solution.travelModel)
+        || travelModelFor(session, (session && session.transportMode) || globalTransportMode);
       const emptyState = document.getElementById('emptyState');
       const sidebar = document.getElementById('sidebar');
       const mapContainer = document.getElementById('mapContainer');
@@ -4455,9 +4484,12 @@
       // Сохраняем желаемый режим ДО renderActiveSession, который сбрасывает globalEngineMode
       const wantedEngineMode = globalEngineMode;
 
-      // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана
-      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames);
-      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, globalTransportMode);
+      // 1. Мгновенный пересчет 4-Pass (20 мс) без блокировки экрана.
+      // Модель перемещений берём из кеша сессии: после первого ответа бэкенда по этому
+      // виду транспорта встроенный движок считает по графу, а не по прямой
+      const fastModel = travelModelFor(session, globalTransportMode);
+      const fastSol = solve4Pass(parsed.requests, parsed.depotCoords, isRemote, globalTransportMode, timeMin, parsed.brigadeNames, fastModel);
+      const fastBase = solveBaseline(parsed.requests, parsed.depotCoords, isRemote, parsed.brigadeNames, globalTransportMode, fastModel);
       
       // Обновляем только ключ 'js', не уничтожая OR-Tools кеш
       if (!session.solutions) session.solutions = {};
@@ -4499,6 +4531,7 @@
           }, modeAtRequest, trafficEnabledAtRequest, timeMin).then(ortoolsRes => {
             if (ortoolsRes && ortoolsRes.solution) {
               session.solutions[ortoolsCacheKey(modeAtRequest, trafficEnabledAtRequest, timeMin)] = ortoolsRes;
+              rememberTravelModel(session, modeAtRequest, ortoolsRes);
               // Ответ идёт секунды: если за это время нажали другую кнопку парка,
               // результат остаётся в кеше, но на экран не попадает
                 if (session.routeCalculationId === calculationId
