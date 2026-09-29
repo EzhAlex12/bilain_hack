@@ -2225,6 +2225,8 @@
       const idxGigabit = findCol(['гигабит', 'gigabit', '1 гбит', 'gbit']);
       const idxTransport = findCol(['транспорт', 'тип транспорта', 'способ передвижения', 'transport', 'mode']);
       const idxBrigade = findCol(['бригада', 'инженер', 'мастер', 'исполнитель', 'brigade', 'engineer']);
+      const idxStatus = findCol(['статус bk', 'статус', 'status']);
+      const seenIds = {};
 
       const isShifted = headerParts.includes('статус bk') || headerParts.includes('статус') || headerParts.includes('status');
       const cId = idxId !== -1 ? idxId : 0;
@@ -2257,8 +2259,17 @@
           continue;
         }
 
-        const reqId = (cId < parts.length ? parts[cId] : parts[0]).trim();
+        let reqId = (cId < parts.length ? parts[cId] : parts[0]).trim();
         if (!reqId || reqId.toLowerCase().includes('адрес офис')) continue;
+
+        // Как is_cancelled_row() бэкенда: заявку, отменённую клиентом, не планируем
+        const status = (idxStatus !== -1 && idxStatus < parts.length ? parts[idxStatus] : '').trim().toLowerCase();
+        if (status === 'отменена') continue;
+
+        // Как unique_request_id() бэкенда: повтор номера получает суффикс, иначе две заявки
+        // склеивались бы в одну по id (отмена, переназначение, кеш OR-Tools)
+        seenIds[reqId] = (seenIds[reqId] || 0) + 1;
+        if (seenIds[reqId] > 1) reqId = reqId + '-' + seenIds[reqId];
 
         const typeBk = (cBk < parts.length ? parts[cBk] : '').trim();
         const typeHd = (cHd < parts.length ? parts[cHd] : '').trim();
@@ -2391,9 +2402,16 @@
     const DEFAULT_POOL_SIZE = 11;
     const TRANSPORT_CAPACITY = { car: 30, transit: 18, bicycle: 14, foot: 10 };
 
+    // Признак гигабитного подключения приходит в двух форматах: parseCsv кладёт булево,
+    // бэкенд — строку 'Да'/'Нет'. Проверки вида req.gigabit === 'Да' в JS-режиме всегда
+    // ложны, а голое req.gigabit на строке 'Нет' — всегда истинно
+    function isGigabit(req) {
+      return !!req && (req.gigabit === true || req.gigabit === 'Да');
+    }
+
     function requestDemand(req) {
       // Как equipment_demand в бэкенде: авария или гигабитное подключение — 2 ед., остальное — 1
-      return (req.category === 'accident' || req.gigabit === 'Да') ? 2 : 1;
+      return (req.category === 'accident' || isGigabit(req)) ? 2 : 1;
     }
 
     // МОДЕЛИРОВАНИЕ ИНЖЕНЕРОВ
@@ -2528,6 +2546,8 @@
 
           // Строгий инвариант: работы завершены ДО конца окна клиента и ДО конца смены
           if (endWork > t.winEnd || endWork > eng.shiftEnd) { ok = false; break; }
+          // Сошедшая с линии бригада не выполняет работы, заканчивающиеся после поломки
+          if (eng.brokenAt != null && endWork > eng.brokenAt) { ok = false; break; }
 
           schedule.push({
             task: t,
@@ -2601,7 +2621,7 @@
           pool.sort((a, b) => {
             if (a.winEnd !== b.winEnd) return a.winEnd - b.winEnd;
             if (a.winStart !== b.winStart) return a.winStart - b.winStart;
-            const ga = a.gigabit === 'Да', gb = b.gigabit === 'Да';
+            const ga = isGigabit(a), gb = isGigabit(b);
             if (ga && !gb) return -1;
             if (!ga && gb) return 1;
             return 0;
@@ -2667,11 +2687,30 @@
 
       return {
         engineers: activeEngineers,
+        // Резерв: бригады пула без заявок. Нужны инцидентам — при поломке или аварии
+        // на линию выводится свободная бригада, а не только уже занятые
+        reserveEngineers: engineers.filter(e => e.tasks.length === 0),
         unassigned: unassigned,
         totalKm: Math.round(totalKm * 10) / 10,
         totalDrive: totalDrive,
         assignedCount: assignedReqs.size
       };
+    }
+
+    // Все бригады, которым можно дать работу: сначала уже работающие, затем резерв.
+    // Порядок важен — циклы берут первую подходящую, и лишний выход на линию дороже
+    function dispatchCandidates(sol) {
+      return sol.engineers.concat(sol.reserveEngineers || []);
+    }
+
+    // Бригада из резерва получила заявку — выводим её на линию (в план и KPI)
+    function activateIfReserve(sol, eng) {
+      const reserve = sol.reserveEngineers || [];
+      const i = reserve.indexOf(eng);
+      if (i >= 0) {
+        reserve.splice(i, 1);
+        sol.engineers.push(eng);
+      }
     }
 
     // BASELINE FIFO
@@ -2741,12 +2780,12 @@
       const select = document.getElementById('reassignTargetSelect');
       if (select) {
         select.innerHTML = '';
-        // Все инженеры района (включая тех, у кого пока 0 заявок в текущей сессии)
-        session.solution.engineers.forEach(eng => {
+        // Все бригады района: работающие и резерв (у резерва пока 0 заявок)
+        dispatchCandidates(session.solution).forEach(eng => {
           if (eng.id !== fromEngId) {
             const opt = document.createElement('option');
             opt.value = eng.id;
-            opt.innerText = eng.name + ' (' + eng.tasks.length + ' заявок, ' + eng.totalKm.toFixed(1) + ' км)';
+            opt.innerText = eng.name + ' (' + (eng.tasks.length ? eng.tasks.length + ' заявок, ' + eng.totalKm.toFixed(1) + ' км' : 'резерв, свободна') + ')';
             select.appendChild(opt);
           }
         });
@@ -2774,7 +2813,7 @@
 
       const select = document.getElementById('reassignTargetSelect');
       const targetEngId = select ? select.value : null;
-      const targetEng = session.solution.engineers.find(e => e.id === targetEngId);
+      const targetEng = dispatchCandidates(session.solution).find(e => e.id === targetEngId);
       const previewBox = document.getElementById('reassignPreviewBox');
       const confirmBtn = document.getElementById('btnConfirmReassign');
       if (!targetEng || !previewBox) return;
@@ -2813,9 +2852,10 @@
       const select = document.getElementById('reassignTargetSelect');
       const targetEngId = select ? select.value : null;
       const fromEng = session.solution.engineers.find(e => e.id === reassignState.fromEngId);
-      const toEng = session.solution.engineers.find(e => e.id === targetEngId);
+      const toEng = dispatchCandidates(session.solution).find(e => e.id === targetEngId);
 
       if (!fromEng || !toEng) return;
+      activateIfReserve(session.solution, toEng);
 
       // 1. Удаляем заявку из исходного инженера
       fromEng.tasks = fromEng.tasks.filter(t => t.id !== reassignState.taskId);
@@ -2856,7 +2896,7 @@
       eng.schedule.forEach((s, idx) => {
         let tagText = 'Ремонт';
         if (s.task.category === 'accident') tagText = 'Авария на ТКД';
-        else if (s.task.category === 'connection') tagText = s.task.gigabit ? 'Подключение 1 Гбит/с' : 'Подключение FTTB/FMC';
+        else if (s.task.category === 'connection') tagText = isGigabit(s.task) ? 'Подключение 1 Гбит/с' : 'Подключение FTTB/FMC';
         else if (s.task.category === 'additional_order') tagText = 'Дозаказ оборудования';
 
         rowsHtml += '<tr>' +
@@ -2994,7 +3034,17 @@
         const color = ENG_COLORS[idx % ENG_COLORS.length];
         const transport = eng.transport || globalTransportMode;
         const cfg = getTransportConfig(transport);
-        const latlngs = [depotCoords]; // Маршрут СТРОГО начинается от маркера депо/офиса
+        // Маршрут начинается от реальной базы бригады: склада округа или, для бригад
+        // Подмосковья, их города. Раньше линия всегда шла от склада округа, и у каширской
+        // бригады рисовался несуществующий рейс Москва -> Кашира
+        const home = eng.startCoords || depotCoords;
+        const latlngs = [home];
+        if (home[0] !== depotCoords[0] || home[1] !== depotCoords[1]) {
+          allBounds.push(home);
+          const baseMarker = L.circleMarker(home, { radius: 7, color: '#111', weight: 2, fillColor: '#FFD200', fillOpacity: 1 })
+            .addTo(mapInstance).bindPopup('<b>База бригады</b><br>' + escapeHtml(eng.name));
+          markerLayers.push(baseMarker);
+        }
 
         eng.schedule.forEach((s, stepIdx) => {
           latlngs.push(s.task.coords);
@@ -3032,6 +3082,9 @@
           markerLayers.push(m);
         });
 
+        // Возврат на базу входит в план и в пробег — рисуем и его
+        if (eng.schedule.length) latlngs.push(home);
+
         // Стиль полилинии под тип транспорта (авто - сплошная, вело - штрих, пешком - точки)
         const polyOptions = {
           color: color,
@@ -3054,11 +3107,12 @@
             if (res && res.points && res.points.length > 1) {
               poly.setLatLngs(res.points);
 
-              // Точный расчет пробега и времени по точкам извилистости
+              // Длина линии на карте — справка во всплывающем окне. Пробег и время бригады
+              // остаются плановыми: раньше они перезаписывались длиной геометрии, и KPI прыгали
+              // после загрузки карты, расходились с проверенным планом и сервером, а предпросмотр
+              // переназначения считал прирост пробега по смеси двух разных метрик
               const exactKm = Math.round((res.roadKm || polylineLengthKm(res.points)) * 10) / 10;
               const exactMin = res.roadMin || Math.max(1, Math.round((exactKm / cfg.baseSpeedKmh) * 60));
-              eng.totalKm = exactKm;
-              eng.totalDriveMin = exactMin;
 
               const modeLabel = transport === 'foot' ? '🚶 Пешком (тротуары, переходы, дворы)' :
                 transport === 'bicycle' ? '🚲 На велосипеде/СИМ (велодорожки, дворы)' :
@@ -3068,16 +3122,9 @@
               poly.bindPopup(
                 '<b>Маршрут: ' + escapeHtml(eng.name) + '</b><br>' +
                 'Транспорт: <b>' + cfg.icon + ' ' + cfg.name + '</b><br>' +
-                modeLabel + ' (' + (res.source === 'osrm' ? 'OSRM' : 'Граф извилистости') + '): <b>' + exactKm + ' км</b> | В пути: <b>' + exactMin + ' мин</b>'
+                'План: <b>' + eng.totalKm.toFixed(1) + ' км</b> | В пути: <b>' + eng.totalDriveMin + ' мин</b><br>' +
+                modeLabel + ' — линия на карте (' + (res.source === 'osrm' ? 'OSRM' : 'приближённая геометрия') + '): ' + exactKm + ' км, ' + exactMin + ' мин'
               );
-
-              // Обновляем плашку инженера в правой панели
-              updateEngineerCardStats(eng);
-
-              // Обновляем KPI
-              recomputeSolutionStats(sol);
-              const curSess = getActiveSession();
-              renderKPI(sol, curSess ? curSess.baseSolution : null);
             }
           } catch (err) {
             console.warn('Street geometry error for eng ' + eng.id, err);
@@ -3215,18 +3262,6 @@
 
         container.appendChild(card);
       });
-    }
-
-    function updateEngineerCardStats(eng) {
-      const card = document.getElementById('card-' + eng.id);
-      if (!card) return;
-      const statsEl = card.querySelector('.eng-stats');
-      if (!statsEl) return;
-      const tCfg = getTransportConfig(eng.transport || globalTransportMode);
-      statsEl.innerHTML = 
-        '<div>' + eng.tasks.length + ' заявок &bull; ' + eng.totalKm.toFixed(1) + ' км</div>' +
-        '<div style="font-size:10px; color:#666;">в пути: <b>' + eng.totalDriveMin + ' мин</b> (' + tCfg.name.toLowerCase() + ')</div>' +
-        '<button class="btn-print-route" data-action="print-route" data-engineer-id="' + escapeHtml(eng.id) + '">🖨️ Путевой лист</button>';
     }
 
     function toggleCard(engId) {
@@ -3509,6 +3544,9 @@
       }
 
       eng.tasks = doneSchedule.map(s => s.task);
+      // Запоминаем время схода: tryInsert больше не даст этой бригаде работы, заканчивающиеся
+      // позже (раньше сломавшейся машине продолжали назначать аварии и ручные переназначения)
+      eng.brokenAt = (eng.brokenAt != null) ? Math.min(eng.brokenAt, breakMin) : breakMin;
       eng.role = eng.role + ' ⚠️ (Сошел в ' + timeVal + ')';
       recomputeEngineer(eng);
 
@@ -3516,14 +3554,14 @@
       orphanSchedule.forEach(item => {
         const req = item.task;
         let placed = false;
-        for (const other of session.solution.engineers) {
+        // Сначала работающие бригады, затем резерв района
+        for (const other of dispatchCandidates(session.solution)) {
           if (other.id === eng.id) continue;
           const plan = tryInsert(other, req, true);
           if (plan) {
             other.tasks = plan.schedule.map(s => s.task);
-            other.schedule = plan.schedule;
-            other.totalKm = plan.kmAcc;
-            other.totalDriveMin = plan.driveMinAcc;
+            recomputeEngineer(other);   // и маршрут, и возврат в депо, и итоги — одним пересчётом
+            activateIfReserve(session.solution, other);
             reassignedCount++;
             placed = true;
             break;
@@ -3569,7 +3607,8 @@
       };
 
       // Ищем инженеров с квалификацией accident / emergency
-      const candidateEngs = session.solution.engineers.filter(e => e.skills && (e.skills.includes('accident') || e.skills.includes('emergency')));
+      // (сначала работающие бригады, затем резерв района)
+      const candidateEngs = dispatchCandidates(session.solution).filter(e => e.skills && (e.skills.includes('accident') || e.skills.includes('emergency')));
       let targetEng = candidateEngs[0] || session.solution.engineers[0];
       let assigned = false;
 
@@ -3579,6 +3618,7 @@
         if (ins) {
           eng.tasks.splice(ins.pos, 0, newAcc);
           recomputeEngineer(eng);
+          activateIfReserve(session.solution, eng);
           targetEng = eng;
           assigned = true;
           break;
@@ -3623,12 +3663,13 @@
           // Вытесненные заявки пробуем отдать другим бригадам, иначе — в список неназначенных
           displacedAll.forEach(req => {
             let placed = false;
-            for (const other of session.solution.engineers) {
+            for (const other of dispatchCandidates(session.solution)) {
               if (other.id === targetEng.id) continue;
               const p = tryInsert(other, req, true);
               if (p) {
                 other.tasks = p.schedule.map(s => s.task);
                 recomputeEngineer(other);
+                activateIfReserve(session.solution, other);
                 placed = true;
                 break;
               }
@@ -3799,7 +3840,7 @@
 
       try {
         const ctrl = new AbortController();
-        const tId = setTimeout(() => ctrl.abort(), 35000);
+        const tId = setTimeout(() => ctrl.abort(), ortoolsRequestTimeoutMs());
         // Вид транспорта уходит на бэкенд: без него /api/upload всегда собирал бы
         // штатный смешанный пул, и кнопки парка в режиме OR-Tools ни на что не влияли
         const mode = transportMode || globalTransportMode || 'mixed';
@@ -3830,9 +3871,16 @@
               ? fallbackParsed.brigadeNames
               : defaultBrigades;
 
-            data.solution.engineers.forEach((eng, idx) => {
-              if (!eng.name || eng.name.startsWith('Инженер') || eng.name.startsWith('ENG-')) {
-                eng.name = (idx < namesPool.length) ? namesPool[idx] : ('Бригада ' + (idx + 1));
+            // Безымянным бригадам (работающим и резерву) раздаём ещё не занятые фамилии из списка;
+            // пригородные бригады уже названы по городу и номер в списке не занимают
+            const allEngs = data.solution.engineers.concat(data.solution.reserveEngineers || []);
+            const needsName = e => !e.name || e.name.startsWith('Инженер') || e.name.startsWith('ENG-');
+            const usedNames = new Set(allEngs.filter(e => !needsName(e)).map(e => e.name));
+            const freeNames = namesPool.filter(n => !usedNames.has(n));
+            let extra = 0;
+            allEngs.forEach(eng => {
+              if (needsName(eng)) {
+                eng.name = freeNames.length ? freeNames.shift() : ('Бригада ' + (namesPool.length + (++extra)));
               }
             });
 
@@ -3858,8 +3906,40 @@
       return null;
     }
 
+    // Сообщение, почему OR-Tools недоступен. Раньше при открытом файле кнопка молча
+    // откатывалась на 4-Pass с подписью «бэкенд офлайн», даже когда сервер работал без ortools
+    function explainOrtoolsUnavailable(backend) {
+      if (!backend) {
+        alert('Python-сервер не запущен. Запустите в терминале из папки проекта: python3 app.py ' +
+          '(тем Python, где установлены зависимости: pip install -r requirements.txt) и откройте http://localhost:8000. ' +
+          'Сейчас активен встроенный 4-Pass.');
+        syncEngineUI('js', '⏱️ Встроенный 4-Pass (сервер не запущен)');
+      } else {
+        alert('Сервер запущен, но в его Python не установлен пакет ortools. Установите зависимости: ' +
+          'pip install -r requirements.txt — или перезапустите app.py тем Python, где ortools есть. ' +
+          'Сейчас активен встроенный 4-Pass.');
+        syncEngineUI('js', '⏱️ 4-Pass (на сервере нет OR-Tools)');
+      }
+    }
+
+    // Таймаут запроса к /api/upload: лимит решателя (до 120 с) плюс запас на 4-Pass,
+    // базовый план и сериализацию. Раньше было фиксированно 35 с — при лимите больше ~30 с
+    // ответ обрывался и значок навсегда оставался на «Оптимизация OR-Tools...»
+    function ortoolsRequestTimeoutMs() {
+      // +60 с: досчёт дорожного графа для новых точек (до 3 запросов к OSRM по 10 с) и 4-Pass
+      return (ortoolsTimeLimitSec + 60) * 1000;
+    }
+
     async function setEngineMode(mode) {
       const session = getActiveSession();
+
+      if (mode === 'ortools') {
+        const backend = await checkBackendAlive();
+        if (!backend || !backend.hasOrtools) {
+          explainOrtoolsUnavailable(backend);
+          return;
+        }
+      }
 
       if (session && session.csvInput) {
         globalEngineMode = mode;
@@ -3879,19 +3959,7 @@
           return;
         }
 
-        // 2. Если в кеше нет — проверяем бэкенд
-        const backend = await checkBackendAlive();
-        if (!backend) {
-          alert('Локальный Python-сервер не запущен на порту 8000. Запустите в терминале: python3 app.py. Сейчас активен встроенный 4-Pass.');
-          syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
-          return;
-        }
-        if (!backend.hasOrtools) {
-          alert('Сервер запущен, но библиотека ortools не установлена в этом окружении Python. Запустите: .venv/bin/python app.py. Сейчас активен встроенный 4-Pass.');
-          syncEngineUI('js', '⏱️ 4-Pass (OR-Tools не найден)');
-          return;
-        }
-
+        // 2. Бэкенд уже проверен в начале setEngineMode
         if (session && session.csvInput) {
           const parsed = parseCsv(session.csvInput);
           const isRemote = parsed.hasSuburbs;
@@ -4017,7 +4085,7 @@
         syncEngineUI('ortools', '🔄 Оптимизация OR-Tools...');
         checkBackendAlive().then(backend => {
           if (!backend || !backend.hasOrtools) {
-            syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
+            syncEngineUI('js', backend ? '⏱️ 4-Pass (на сервере нет OR-Tools)' : '⏱️ Встроенный 4-Pass (сервер не запущен)');
             return;
           }
 
@@ -4054,7 +4122,7 @@
               }
             } else {
               if (activeTabId === tabId) {
-                syncEngineUI('js', '⏱️ 4-Pass (бэкенд вернул ошибку)');
+                syncEngineUI('js', '⏱️ 4-Pass (OR-Tools не ответил, показан встроенный план)');
               }
             }
           }).catch(err => {
@@ -4429,7 +4497,7 @@
 
         checkBackendAlive().then(backend => {
           if (!backend || !backend.hasOrtools) {
-            syncEngineUI('js', '⏱️ Встроенный 4-Pass (бэкенд офлайн)');
+            syncEngineUI('js', backend ? '⏱️ 4-Pass (на сервере нет OR-Tools)' : '⏱️ Встроенный 4-Pass (сервер не запущен)');
             return;
           }
 
@@ -4456,6 +4524,11 @@
                 session.originalSolution = JSON.parse(JSON.stringify(ortoolsRes.solution));
                 renderActiveSession();
               }
+            } else if (session.routeCalculationId === calculationId && getActiveSession() === session
+                       && globalEngineMode === 'ortools') {
+              // Сервер не ответил за отведённое время или вернул ошибку: на экране уже план 4-Pass,
+              // значок не должен навсегда оставаться на «Оптимизация OR-Tools...»
+              syncEngineUI('js', '⏱️ 4-Pass (OR-Tools не ответил, показан встроенный план)');
             }
           }).catch(() => {});
         });
@@ -4502,7 +4575,7 @@
           <div class="unassigned-card-meta">
             <span>📍 <b>${escapeHtml(r.district)}</b>, ${escapeHtml(r.address)}</span>
             <span>⏱️ Длительность: <b>${r.durationMin} мин</b></span>
-            ${r.gigabit === 'Да' ? '<span style="color:#D84315; font-weight:700;">⚡ Требуется Гигабит</span>' : ''}
+            ${isGigabit(r) ? '<span style="color:#D84315; font-weight:700;">⚡ Требуется Гигабит</span>' : ''}
           </div>
           <div class="unassigned-reason-box">
             <b>⚡ Причина невыполнения:</b> ${escapeHtml(item.reason)}
@@ -4617,6 +4690,10 @@
           syncEngineUI('ortools', '⚡ OR-Tools подключен');
           const bOr = document.getElementById('btnEngineOrtools');
           if (bOr) bOr.title = 'Оптимизация Google OR-Tools через локальный Python бэкенд (подключен)';
+        } else if (backend) {
+          syncEngineUI('js', '⏱️ 4-Pass (на сервере нет OR-Tools)');
+          const bOr = document.getElementById('btnEngineOrtools');
+          if (bOr) bOr.title = 'Сервер запущен без пакета ortools (установите: pip install -r requirements.txt)';
         } else {
           syncEngineUI('js', '⏱️ Встроенный 4-Pass (офлайн)');
           const bOr = document.getElementById('btnEngineOrtools');
