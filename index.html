@@ -1146,7 +1146,7 @@
             <button onclick="resetShift()" title="Вернуть смену по умолчанию" style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:12px; border:none; cursor:pointer; background:#ECEFF1; color:#455A64;">Сброс</button>
           </div>
           <div style="margin-top:6px; font-size:10.5px; color:#666; line-height:1.35;">
-            Смена действует на все бригады: выезд со склада не раньше начала, возврат — не позже конца.
+            Смена действует на все бригады: выезд со склада не раньше начала, все работы — до конца смены (возвращаться на склад по ТЗ не требуется).
             Заявки, окно которых не помещается в смену, уходят в невыполненные.
           </div>
         </div>
@@ -2562,16 +2562,9 @@
           curCoords = t.coords;
         }
 
-        if (ok) {
-          const depotCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
-          const dBack = roadDistanceKm(curCoords, depotCoords, eng.transport);
-          const tBack = travelTimeMin(curCoords, depotCoords, eng.transport, curTime);
-          if (curTime + tBack > eng.shiftEnd) {
-            continue;
-          }
-          if (!best || kmAcc + dBack < best.kmAcc) {
-            best = { pos: pos, kmAcc: kmAcc + dBack, driveMinAcc: driveMinAcc + tBack, schedule: schedule };
-          }
+        // По ТЗ возвращаться на склад после последней заявки не требуется (как в recompute_route_schedule)
+        if (ok && (!best || kmAcc < best.kmAcc)) {
+          best = { pos: pos, kmAcc: kmAcc, driveMinAcc: driveMinAcc, schedule: schedule };
         }
       }
       return best;
@@ -2599,7 +2592,7 @@
         const legKm = roadDistanceKm(depot, req.coords, e0.transport);
         const legMin = travelTimeMin(depot, req.coords, e0.transport, e0.shiftStart);
         return 'Недостижимо даже для свободного инженера: дорога от депо ' + legMin + ' мин (' + legKm.toFixed(1) + ' км), ' +
-          'работы (' + req.durationMin + ' мин) с возвратом в депо не укладываются в окно ' +
+          'работы (' + req.durationMin + ' мин) не укладываются в окно ' +
           formatTime(req.winStart) + '–' + formatTime(req.winEnd) + ' и смену до ' + formatTime(e0.shiftEnd) + '.';
       }
       return 'График подходящих бригад полностью заполнен: свободный инженер успел бы, но все допущенные мастера заняты в этом окне.';
@@ -3082,9 +3075,6 @@
           markerLayers.push(m);
         });
 
-        // Возврат на базу входит в план и в пробег — рисуем и его
-        if (eng.schedule.length) latlngs.push(home);
-
         // Стиль полилинии под тип транспорта (авто - сплошная, вело - штрих, пешком - точки)
         const polyOptions = {
           color: color,
@@ -3560,7 +3550,7 @@
           const plan = tryInsert(other, req, true);
           if (plan) {
             other.tasks = plan.schedule.map(s => s.task);
-            recomputeEngineer(other);   // и маршрут, и возврат в депо, и итоги — одним пересчётом
+            recomputeEngineer(other);   // маршрут и итоги — одним пересчётом
             activateIfReserve(session.solution, other);
             reassignedCount++;
             placed = true;
@@ -3688,7 +3678,7 @@
         session.solution.unassigned.push({
           req: newAcc,
           reason: 'Ни один аварийщик не успевает выполнить работы (' + newAcc.durationMin + ' мин) в окне ' +
-            formatTime(newAcc.winStart) + '–' + formatTime(newAcc.winEnd) + ' с возвратом в депо до конца смены, даже с вытеснением ремонтов и дозаказов'
+            formatTime(newAcc.winStart) + '–' + formatTime(newAcc.winEnd) + ' до конца смены, даже с вытеснением ремонтов и дозаказов'
         });
       }
 
@@ -3754,14 +3744,12 @@
       }
 
       eng.schedule = schedule;
-      const depotCoords = eng.startCoords || (typeof getActiveSession === 'function' && getActiveSession() ? getActiveSession().depotCoords : [55.7001, 37.7690]);
-      const dBack = roadDistanceKm(curCoords, depotCoords, eng.transport);
-      const tBack = travelTimeMin(curCoords, depotCoords, eng.transport, curTime);
-      eng.returnKm = Math.round(dBack * 10) / 10;
-      eng.returnMin = tBack;
-      eng.finishTime = curTime + tBack;
-      eng.totalKm = Math.round((kmAcc + dBack) * 10) / 10;
-      eng.totalDriveMin = driveMinAcc + tBack;
+      // По ТЗ день бригады заканчивается на последней заявке: обратный путь не считается
+      eng.returnKm = 0;
+      eng.returnMin = 0;
+      eng.finishTime = curTime;
+      eng.totalKm = Math.round(kmAcc * 100) / 100;   // как total_km на бэкенде; до 0.1 — только при выводе
+      eng.totalDriveMin = driveMinAcc;
     }
 
     // ПЕРЕСЧЕТ ОБЩИХ МЕТРИК РЕШЕНИЯ
