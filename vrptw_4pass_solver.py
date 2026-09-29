@@ -112,6 +112,16 @@ TRANSPORT_CONFIG = {
 # test_traffic_default_matches_javascript в tests/test_frontend_parity.py.
 TRAFFIC_ENABLED_DEFAULT = False
 
+# Рабочая смена бригад по умолчанию. Диспетчер меняет её из интерфейса, поэтому
+# значение живёт одной константой на солвер, app.py и index.html — так же, как
+# умолчание учёта пробок (сторожится tests/test_frontend_parity.py).
+SHIFT_START_DEFAULT_MIN = 10 * 60   # 10:00
+SHIFT_END_DEFAULT_MIN = 22 * 60     # 22:00
+
+# Сколько секунд отводится полировке Guided Local Search в OR-Tools.
+# На 3 с выигрыш около 17% км, на 15 с около 20%, дальше плато.
+ORTOOLS_TIME_LIMIT_DEFAULT_SEC = 15.0
+
 AVG_SPEED_KMH = {k: v["speed_kmh"] for k, v in TRANSPORT_CONFIG.items()}
 WINDING_FACTORS = {k: v["winding_factor"] for k, v in TRANSPORT_CONFIG.items()}
 
@@ -216,8 +226,8 @@ class Engineer:
     id: str
     home_lat: float
     home_lon: float
-    shift_start_min: int = 8 * 60   # 08:00
-    shift_end_min: int = 22 * 60     # 22:00
+    shift_start_min: int = SHIFT_START_DEFAULT_MIN
+    shift_end_min: int = SHIFT_END_DEFAULT_MIN
     transport: str = "car"           # "car" | "transit" | "bicycle" | "foot"
     skills: Set[str] = field(default_factory=lambda: {"connection", "extra_order", "repair", "local_repair"})
     equipment_capacity: int = 30
@@ -944,6 +954,8 @@ def create_engineers_pool(
     brigade_names: Optional[List[str]] = None,
     region: str = MOSCOW_REGION,
     transport_mode: str = "mixed",
+    shift_start_min: int = SHIFT_START_DEFAULT_MIN,
+    shift_end_min: int = SHIFT_END_DEFAULT_MIN,
 ) -> List[Engineer]:
     engineers: List[Engineer] = []
 
@@ -996,8 +1008,8 @@ def create_engineers_pool(
                 id=eng_id,
                 home_lat=home[0],
                 home_lon=home[1],
-                shift_start_min=8 * 60,
-                shift_end_min=22 * 60,
+                shift_start_min=shift_start_min,
+                shift_end_min=shift_end_min,
                 transport=transport,
                 skills=skills,
                 equipment_capacity=cap,
@@ -1028,6 +1040,8 @@ def build_engineers_for_dataset(
     brigade_names: Optional[List[str]] = None,
     dataset_name: str = "",
     transport_mode: str = "mixed",
+    shift_start_min: int = SHIFT_START_DEFAULT_MIN,
+    shift_end_min: int = SHIFT_END_DEFAULT_MIN,
 ) -> List[Engineer]:
     """
     Единая сборка пула бригад для консоли (solution.py) и веб-сервиса (app.py).
@@ -1049,6 +1063,8 @@ def build_engineers_for_dataset(
             brigade_names=brigade_names or [],
             region=MOSCOW_REGION,
             transport_mode=transport_mode,
+            shift_start_min=shift_start_min,
+            shift_end_min=shift_end_min,
         )
 
     for city in SUBURB_DISTRICTS:
@@ -1064,8 +1080,8 @@ def build_engineers_for_dataset(
                     id=f"Бригада {city}-{k + 1:02d}",
                     home_lat=home[0],
                     home_lon=home[1],
-                    shift_start_min=8 * 60,
-                    shift_end_min=22 * 60,
+                    shift_start_min=shift_start_min,
+                    shift_end_min=shift_end_min,
                     transport="car",     # плечи между городами большие, пешие и вело нереалистичны
                     skills={"connection", "extra_order", "repair", "local_repair",
                             "emergency", "accident"},
@@ -1379,7 +1395,7 @@ def explain_dropped(r: Request, engineers: List[Engineer]) -> str:
 def solve_vrptw_ortools_routing(
     requests: List[Request],
     engineers: List[Engineer],
-    time_limit_sec: float = 15.0,
+    time_limit_sec: float = ORTOOLS_TIME_LIMIT_DEFAULT_SEC,
     warm_routes: Optional[List[Route]] = None,
 ) -> Tuple[List[Route], List[Request], str]:
     """
@@ -1602,7 +1618,7 @@ def optimize_routes_with_ortools(
     routes: List[Route],
     requests: Optional[List[Request]] = None,
     engineers: Optional[List[Engineer]] = None,
-    time_limit_sec: float = 15.0,
+    time_limit_sec: float = ORTOOLS_TIME_LIMIT_DEFAULT_SEC,
 ) -> Tuple[List[Route], List[Request], str]:
     """
     Обертка над оптимизатором. Возвращает (маршруты, невыполненные заявки, статус) —
@@ -1777,7 +1793,8 @@ def evaluate_dataset(csv_path: str):
 
     # 2. Оптимизация через Google OR-Tools
     opt_routes, opt_dropped, ortools_status_str = optimize_routes_with_ortools(
-        warm_routes, requests=requests, engineers=engineers, time_limit_sec=15.0
+        warm_routes, requests=requests, engineers=engineers,
+        time_limit_sec=ORTOOLS_TIME_LIMIT_DEFAULT_SEC
     )
 
     # 3. Baseline FIFO

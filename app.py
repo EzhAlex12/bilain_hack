@@ -77,11 +77,38 @@ def parse_csv_content(csv_text: str) -> tuple[list[solver.Request], tuple[float,
     return requests, depot_coords, depot_address, brigade_names
 
 
-def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = "", transport_mode: str = "mixed", traffic_enabled: bool = False, traffic_time_min: int = 540):
+def parse_clock_param(raw: str, default_min: int) -> int:
+    """
+    Время из query: принимает и "10:00", и число минут от полуночи.
+    Мусор молча заменяется умолчанием — ломать расчёт из-за опечатки в URL незачем.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return default_min
+    try:
+        if ":" in text:
+            hh, mm = text.split(":", 1)
+            value = int(hh) * 60 + int(mm)
+        else:
+            value = int(text)
+    except ValueError:
+        return default_min
+    return value if 0 <= value <= 24 * 60 else default_min
+
+
+def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float, float], depot_address: str, brigade_names: list[str] = None, dataset_name: str = "", transport_mode: str = "mixed", traffic_enabled: bool = False, traffic_time_min: int = 540, shift_start_min: int = None, shift_end_min: int = None, time_limit_sec: float = None):
     # Единый пул инженеров (тот же, что в консольном solution.py); все стартуют строго из офиса.
     # transport_mode приходит из переключателя парка в интерфейсе.
+    if shift_start_min is None:
+        shift_start_min = solver.SHIFT_START_DEFAULT_MIN
+    if shift_end_min is None:
+        shift_end_min = solver.SHIFT_END_DEFAULT_MIN
+    if time_limit_sec is None:
+        time_limit_sec = solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC
     engineers = solver.build_engineers_for_dataset(requests, depot_coords, brigade_names,
-                                                   dataset_name=dataset_name, transport_mode=transport_mode)
+                                                   dataset_name=dataset_name, transport_mode=transport_mode,
+                                                   shift_start_min=shift_start_min,
+                                                   shift_end_min=shift_end_min)
     for engineer in engineers:
         engineer.traffic_enabled = traffic_enabled
         engineer.traffic_time_min = traffic_time_min
@@ -99,7 +126,7 @@ def run_full_pipeline(requests: list[solver.Request], depot_coords: tuple[float,
     ortools_status = '4-Pass Feasible (OR-Tools не установлен)'
     if solver.HAS_ORTOOLS:
         opt_routes, opt_dropped, ortools_status = solver.optimize_routes_with_ortools(
-            opt_routes, requests=requests, engineers=engineers, time_limit_sec=15.0
+            opt_routes, requests=requests, engineers=engineers, time_limit_sec=time_limit_sec
         )
 
     # 3. Baseline FIFO
@@ -463,9 +490,24 @@ class Handler(BaseHTTPRequestHandler):
                     traffic_time_min = int(query.get("traffic_time", ["540"])[0])
                 except ValueError:
                     traffic_time_min = 540
+                # Рабочая смена и лимит решателя настраиваются диспетчером в интерфейсе
+                shift_start_min = parse_clock_param(query.get("shift_start", [""])[0],
+                                                    solver.SHIFT_START_DEFAULT_MIN)
+                shift_end_min = parse_clock_param(query.get("shift_end", [""])[0],
+                                                  solver.SHIFT_END_DEFAULT_MIN)
+                if shift_end_min <= shift_start_min:
+                    shift_start_min = solver.SHIFT_START_DEFAULT_MIN
+                    shift_end_min = solver.SHIFT_END_DEFAULT_MIN
+                try:
+                    time_limit_sec = float(query.get("time_limit", [""])[0])
+                except ValueError:
+                    time_limit_sec = solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC
+                time_limit_sec = min(max(time_limit_sec, 1.0), 120.0)
                 res = run_full_pipeline(requests, depot_coords, depot_addr, brigade_names=brigade_names,
                                         transport_mode=transport_mode, traffic_enabled=traffic_enabled,
-                                        traffic_time_min=traffic_time_min)
+                                        traffic_time_min=traffic_time_min,
+                                        shift_start_min=shift_start_min, shift_end_min=shift_end_min,
+                                        time_limit_sec=time_limit_sec)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_cors_headers()

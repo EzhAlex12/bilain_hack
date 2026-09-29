@@ -607,6 +607,42 @@
       gap: 12px;
       flex-wrap: wrap;
     }
+    .unassigned-filter-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .unassigned-filter-btn {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 11px;
+      border-radius: 14px;
+      border: 1px solid #D0D3D8;
+      background: #FFF;
+      color: #455A64;
+      cursor: pointer;
+      transition: background .12s, border-color .12s, color .12s;
+    }
+    .unassigned-filter-btn:hover:not(:disabled) { border-color: #0070BA; color: #0070BA; }
+    .unassigned-filter-btn.active {
+      background: #0070BA;
+      border-color: #0070BA;
+      color: #FFF;
+    }
+    .unassigned-filter-btn:disabled {
+      opacity: .45;
+      cursor: default;
+    }
+    .unassigned-empty-box {
+      padding: 22px 14px;
+      text-align: center;
+      font-size: 12.5px;
+      color: #777;
+      background: #FAFAFA;
+      border: 1px dashed #D0D3D8;
+      border-radius: 8px;
+    }
     .unassigned-reason-box {
       background: #FFEBEE;
       border: 1px solid #FFCDD2;
@@ -1088,6 +1124,55 @@
                 </a>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- РАБОЧИЙ ДЕНЬ БРИГАД -->
+      <div class="traffic-toolbar" style="background:#FFF; border:1px solid #E0E2E6; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+        <div class="collapsible-header" onclick="toggleCollapsible('shiftBody', 'shiftChevron')">
+          <div style="font-weight:700; font-size:12px; display:flex; align-items:center; gap:6px; color:#1A1A1A;">
+            <span>🕘 Рабочий день бригад:</span>
+            <span class="chevron collapsed" id="shiftChevron">▼</span>
+          </div>
+          <span id="shiftSummary" style="font-size:11px; font-weight:700; color:#0070BA;">10:00 – 22:00</span>
+        </div>
+        <div class="collapsible-body collapsed" id="shiftBody">
+          <div style="margin-top:8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <label style="font-size:11px; color:#444;">с</label>
+            <input type="time" id="shiftStartInput" value="10:00" onchange="onShiftChanged()" style="font-size:11px; padding:3px 6px; border:1px solid #D0D3D8; border-radius:5px; background:#FFF; color:#1A1A1A;">
+            <label style="font-size:11px; color:#444;">до</label>
+            <input type="time" id="shiftEndInput" value="22:00" onchange="onShiftChanged()" style="font-size:11px; padding:3px 6px; border:1px solid #D0D3D8; border-radius:5px; background:#FFF; color:#1A1A1A;">
+            <button onclick="resetShift()" title="Вернуть смену по умолчанию" style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:12px; border:none; cursor:pointer; background:#ECEFF1; color:#455A64;">Сброс</button>
+          </div>
+          <div style="margin-top:6px; font-size:10.5px; color:#666; line-height:1.35;">
+            Смена действует на все бригады: выезд со склада не раньше начала, возврат — не позже конца.
+            Заявки, окно которых не помещается в смену, уходят в невыполненные.
+          </div>
+        </div>
+      </div>
+
+      <!-- ВРЕМЯ НА ПОИСК РЕШЕНИЯ -->
+      <div class="traffic-toolbar" style="background:#FFF; border:1px solid #E0E2E6; border-radius:8px; padding:10px 12px; margin-bottom:12px;">
+        <div class="collapsible-header" onclick="toggleCollapsible('solverBody', 'solverChevron')">
+          <div style="font-weight:700; font-size:12px; display:flex; align-items:center; gap:6px; color:#1A1A1A;">
+            <span>⏱️ Время на поиск решения:</span>
+            <span class="chevron collapsed" id="solverChevron">▼</span>
+          </div>
+          <span id="solverSummary" style="font-size:11px; font-weight:700; color:#0070BA;">15 с</span>
+        </div>
+        <div class="collapsible-body collapsed" id="solverBody">
+          <div style="margin-top:8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <input type="number" id="solverLimitInput" value="15" min="1" max="120" step="1"
+                   onchange="onSolverLimitChanged()" style="font-size:11px; padding:3px 6px; border:1px solid #D0D3D8; border-radius:5px; background:#FFF; color:#1A1A1A; width:70px;">
+            <span style="font-size:11px; color:#444;">секунд</span>
+            <button onclick="setSolverLimit(3)" style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:12px; border:none; cursor:pointer; background:#ECEFF1; color:#455A64;">3 с</button>
+            <button onclick="setSolverLimit(15)" style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:12px; border:none; cursor:pointer; background:#ECEFF1; color:#455A64;">15 с</button>
+            <button onclick="setSolverLimit(60)" style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:12px; border:none; cursor:pointer; background:#ECEFF1; color:#455A64;">60 с</button>
+          </div>
+          <div style="margin-top:6px; font-size:10.5px; color:#666; line-height:1.35;">
+            Лимит полировки Google OR-Tools. На 3 секундах выигрыш около 17% пробега, на 15 — около 20%,
+            дальше плато. Действует только в режиме OR-Tools: встроенный 4-Pass считает мгновенно.
           </div>
         </div>
       </div>
@@ -1606,6 +1691,81 @@
     // Меняется только вместе с ним, иначе автономный режим в браузере и /api/upload
     // посчитают один и тот же файл по-разному (сторожит tests/test_frontend_parity.py).
     let yandexTrafficEnabled = false;
+
+    // Рабочий день бригад. Умолчание общее с бэкендом:
+    // vrptw_4pass_solver.SHIFT_START_DEFAULT_MIN / SHIFT_END_DEFAULT_MIN
+    const SHIFT_START_DEFAULT_MIN = 600;    // 10:00
+    const SHIFT_END_DEFAULT_MIN = 1320;     // 22:00
+    let shiftStartMin = SHIFT_START_DEFAULT_MIN;
+    let shiftEndMin = SHIFT_END_DEFAULT_MIN;
+
+    // Лимит полировки OR-Tools. Умолчание общее с бэкендом:
+    // vrptw_4pass_solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC
+    const ORTOOLS_TIME_LIMIT_DEFAULT_SEC = 15;
+    let ortoolsTimeLimitSec = ORTOOLS_TIME_LIMIT_DEFAULT_SEC;
+
+    function minutesFromClock(text, fallbackMin) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(text || '').trim());
+      if (!m) return fallbackMin;
+      const value = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+      return (value >= 0 && value <= 1440) ? value : fallbackMin;
+    }
+
+    function clockFromMinutes(min) {
+      return String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0');
+    }
+
+    function renderShiftPanel() {
+      const a = document.getElementById('shiftStartInput');
+      const b = document.getElementById('shiftEndInput');
+      const s = document.getElementById('shiftSummary');
+      if (a) a.value = clockFromMinutes(shiftStartMin);
+      if (b) b.value = clockFromMinutes(shiftEndMin);
+      if (s) s.textContent = clockFromMinutes(shiftStartMin) + ' – ' + clockFromMinutes(shiftEndMin);
+    }
+
+    async function onShiftChanged() {
+      const start = minutesFromClock(document.getElementById('shiftStartInput') && document.getElementById('shiftStartInput').value, SHIFT_START_DEFAULT_MIN);
+      const end = minutesFromClock(document.getElementById('shiftEndInput') && document.getElementById('shiftEndInput').value, SHIFT_END_DEFAULT_MIN);
+      if (end <= start) {
+        // Смена нулевой или отрицательной длины смысла не имеет: откатываем поля
+        renderShiftPanel();
+        return;
+      }
+      shiftStartMin = start;
+      shiftEndMin = end;
+      renderShiftPanel();
+      await recalculateWithRouting(true);
+    }
+
+    async function resetShift() {
+      shiftStartMin = SHIFT_START_DEFAULT_MIN;
+      shiftEndMin = SHIFT_END_DEFAULT_MIN;
+      renderShiftPanel();
+      await recalculateWithRouting(true);
+    }
+
+    function renderSolverPanel() {
+      const inp = document.getElementById('solverLimitInput');
+      const s = document.getElementById('solverSummary');
+      if (inp) inp.value = String(ortoolsTimeLimitSec);
+      if (s) s.textContent = ortoolsTimeLimitSec + ' с';
+    }
+
+    async function onSolverLimitChanged() {
+      const inp = document.getElementById('solverLimitInput');
+      const raw = parseFloat(inp && inp.value);
+      // Те же границы, что и на бэкенде в /api/upload
+      ortoolsTimeLimitSec = isNaN(raw) ? ORTOOLS_TIME_LIMIT_DEFAULT_SEC : Math.min(Math.max(raw, 1), 120);
+      renderSolverPanel();
+      await recalculateWithRouting(true);
+    }
+
+    async function setSolverLimit(sec) {
+      ortoolsTimeLimitSec = sec;
+      renderSolverPanel();
+      await recalculateWithRouting(true);
+    }
 
     // Зеркало MOSCOW_LON_SCALE из vrptw_4pass_solver.py = cos(55.7558 град).
     // Литерал, а не Math.cos: реализации cos() в V8 и в libm совпадают не всегда.
@@ -2281,8 +2441,8 @@
           skills: skills,
           capacity: TRANSPORT_CAPACITY[transport] || TRANSPORT_CAPACITY.car,
           startCoords: startCoords,
-          shiftStart: 480,
-          shiftEnd: 1320,
+          shiftStart: shiftStartMin,
+          shiftEnd: shiftEndMin,
           tasks: [],
           totalKm: 0,
           totalDriveMin: 0
@@ -2305,8 +2465,8 @@
             skills: ['local_repair', 'connection', 'extra_order', 'accident', 'emergency', 'repair'],
             capacity: TRANSPORT_CAPACITY.car,
             startCoords: home,
-            shiftStart: 480,
-            shiftEnd: 1320,
+            shiftStart: shiftStartMin,
+            shiftEnd: shiftEndMin,
             tasks: [],
             totalKm: 0,
             totalDriveMin: 0
@@ -3626,8 +3786,11 @@
     // Ключ кеша решений: для каждого вида парка своё решение OR-Tools, иначе
     // переключение движка достаёт результат, посчитанный для прошлого транспорта
     function ortoolsCacheKey(mode, trafficEnabled, trafficTimeMin) {
+      // Смена и лимит решателя тоже часть условий задачи: без них переключение
+      // настроек доставало бы из кеша решение, посчитанное для прошлых значений
       return 'ortools:' + (mode || globalTransportMode || 'mixed') + ':'
-        + (trafficEnabled ? 'traffic' : 'clear') + ':' + (trafficTimeMin ?? 540);
+        + (trafficEnabled ? 'traffic' : 'clear') + ':' + (trafficTimeMin ?? 540)
+        + ':' + shiftStartMin + '-' + shiftEndMin + ':' + ortoolsTimeLimitSec;
     }
 
     async function fetchOrtoolsSolution(csvText, fallbackParsed, transportMode, trafficEnabled, trafficTimeMin) {
@@ -3643,7 +3806,10 @@
         const uploadUrl = backend.uploadUrl + (backend.uploadUrl.indexOf('?') >= 0 ? '&' : '?')
           + 'transport=' + encodeURIComponent(mode)
           + '&traffic=' + (trafficEnabled ? '1' : '0')
-          + '&traffic_time=' + encodeURIComponent(String(trafficTimeMin ?? 540));
+          + '&traffic_time=' + encodeURIComponent(String(trafficTimeMin ?? 540))
+          + '&shift_start=' + encodeURIComponent(clockFromMinutes(shiftStartMin))
+          + '&shift_end=' + encodeURIComponent(clockFromMinutes(shiftEndMin))
+          + '&time_limit=' + encodeURIComponent(String(ortoolsTimeLimitSec));
         const resp = await fetch(uploadUrl, {
           method: 'POST',
           body: csvText,
@@ -4296,6 +4462,78 @@
       }
     }
 
+    // ФИЛЬТР НЕВЫПОЛНЕННЫХ ЗАЯВОК ПО ТИПУ ПОЛОМКИ
+    const UNASSIGNED_FILTERS = [
+      { cat: 'all', label: 'Все' },
+      { cat: 'accident', label: '🚨 Аварии' },
+      { cat: 'connection', label: '🔌 Подключения' },
+      { cat: 'repair', label: '🔧 Ремонты' },
+      { cat: 'extra_order', label: '📦 Дозаказы' }
+    ];
+    let unassignedFilter = 'all';
+
+    // Категорий в плане ровно четыре, всё неизвестное считаем дозаказом —
+    // так же, как это делала отрисовка карточек до появления фильтра
+    function unassignedCategory(req) {
+      const c = req && req.category;
+      return (c === 'accident' || c === 'connection' || c === 'repair') ? c : 'extra_order';
+    }
+
+    function unassignedCardHtml(item) {
+      const r = item.req;
+      const cat = unassignedCategory(r);
+      const catName = { accident: '🚨 Авария', connection: '🔌 Подключение',
+                        repair: '🔧 Ремонт', extra_order: '📦 Дозаказ' }[cat];
+      const catClass = { accident: 'tag-accident', connection: 'tag-connect',
+                         repair: 'tag-repair', extra_order: 'tag-order' }[cat];
+      const timeStr = `${formatTime(r.winStart)} – ${formatTime(r.winEnd)}`;
+      return `
+        <div class="unassigned-card">
+          <div class="unassigned-card-head">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="stop-tag ${catClass}">${catName}</span>
+              <span>Заявка №${escapeHtml(r.id)}</span>
+              ${r.typeHd ? `<span style="font-size:11px; font-weight:normal; color:#666;">(${escapeHtml(r.typeHd)})</span>` : ''}
+            </div>
+            <div style="font-size:12px; color:#B71C1C; font-weight:700;">
+              🕒 ${timeStr}
+            </div>
+          </div>
+          <div class="unassigned-card-meta">
+            <span>📍 <b>${escapeHtml(r.district)}</b>, ${escapeHtml(r.address)}</span>
+            <span>⏱️ Длительность: <b>${r.durationMin} мин</b></span>
+            ${r.gigabit === 'Да' ? '<span style="color:#D84315; font-weight:700;">⚡ Требуется Гигабит</span>' : ''}
+          </div>
+          <div class="unassigned-reason-box">
+            <b>⚡ Причина невыполнения:</b> ${escapeHtml(item.reason)}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderUnassignedList() {
+      const session = getActiveSession();
+      const list = document.getElementById('unassignedList');
+      if (!session || !session.solution || !list) return;
+
+      const items = (session.solution.unassigned || []).filter(
+        item => unassignedFilter === 'all' || unassignedCategory(item.req) === unassignedFilter
+      );
+
+      document.querySelectorAll('.unassigned-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.cat === unassignedFilter);
+      });
+
+      list.innerHTML = items.length
+        ? items.map(unassignedCardHtml).join('')
+        : '<div class="unassigned-empty-box">В этой категории невыполненных заявок нет.</div>';
+    }
+
+    function setUnassignedFilter(cat) {
+      unassignedFilter = cat;
+      renderUnassignedList();
+    }
+
     function openUnassignedModal() {
       const session = getActiveSession();
       if (!session || !session.solution) {
@@ -4323,48 +4561,29 @@
         const totalReqs = session.reqCount || (session.solution.assignedCount + unassigned.length);
         title.innerHTML = `⚠️ Невыполненные заявки (${unassigned.length} из ${totalReqs})`;
 
-        let html = `
+        const counts = { all: unassigned.length, accident: 0, connection: 0, repair: 0, extra_order: 0 };
+        unassigned.forEach(item => { counts[unassignedCategory(item.req)] += 1; });
+
+        // Открываем всегда на «всех»: фильтр от прошлого просмотра мог бы показать
+        // пустой список и выглядеть как потерянные заявки
+        unassignedFilter = 'all';
+
+        const chips = UNASSIGNED_FILTERS.map(f =>
+          `<button class="unassigned-filter-btn" data-cat="${f.cat}"
+                   onclick="setUnassignedFilter('${f.cat}')"
+                   ${counts[f.cat] === 0 ? 'disabled' : ''}>${f.label} (${counts[f.cat]})</button>`
+        ).join('');
+
+        body.innerHTML = `
           <div style="background:#FFF3E0; border:1px solid #FFE082; border-radius:6px; padding:10px 14px; margin-bottom:12px; font-size:12px; color:#E65100; display:flex; justify-content:space-between; align-items:center;">
             <span>Не удалось включить в график: <b>${unassigned.length}</b> заявок</span>
             <span>Успешно распределено: <b>${session.solution.assignedCount}</b> заявок</span>
           </div>
+          <div class="unassigned-filter-bar">${chips}</div>
+          <div id="unassignedList"></div>
         `;
 
-        unassigned.forEach((item) => {
-          const r = item.req;
-          const catName = r.category === 'accident' ? '🚨 Авария' :
-                          r.category === 'connection' ? '🔌 Подключение' :
-                          r.category === 'repair' ? '🔧 Ремонт' : '📦 Дозаказ';
-          const catClass = r.category === 'accident' ? 'tag-accident' :
-                           r.category === 'connection' ? 'tag-connect' :
-                           r.category === 'repair' ? 'tag-repair' : 'tag-order';
-          const timeStr = `${formatTime(r.winStart)} – ${formatTime(r.winEnd)}`;
-
-          html += `
-            <div class="unassigned-card">
-              <div class="unassigned-card-head">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <span class="stop-tag ${catClass}">${catName}</span>
-                  <span>Заявка №${escapeHtml(r.id)}</span>
-                  ${r.typeHd ? `<span style="font-size:11px; font-weight:normal; color:#666;">(${escapeHtml(r.typeHd)})</span>` : ''}
-                </div>
-                <div style="font-size:12px; color:#B71C1C; font-weight:700;">
-                  🕒 ${timeStr}
-                </div>
-              </div>
-              <div class="unassigned-card-meta">
-                <span>📍 <b>${escapeHtml(r.district)}</b>, ${escapeHtml(r.address)}</span>
-                <span>⏱️ Длительность: <b>${r.durationMin} мин</b></span>
-                ${r.gigabit === 'Да' ? '<span style="color:#D84315; font-weight:700;">⚡ Требуется Гигабит</span>' : ''}
-              </div>
-              <div class="unassigned-reason-box">
-                <b>⚡ Причина невыполнения:</b> ${escapeHtml(item.reason)}
-              </div>
-            </div>
-          `;
-        });
-
-        body.innerHTML = html;
+        renderUnassignedList();
       }
 
       modal.style.display = 'flex';
@@ -4384,6 +4603,8 @@
 
     window.onload = async function() {
       renderTrafficToggle();
+      renderShiftPanel();
+      renderSolverPanel();
       renderTabs();
       renderActiveSession();
 

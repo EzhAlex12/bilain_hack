@@ -16,6 +16,7 @@ import sys
 # Весь алгоритм живёт здесь — impортируем всё сразу
 from vrptw_4pass_solver import (
     HAS_ORTOOLS,
+    ORTOOLS_TIME_LIMIT_DEFAULT_SEC,
     leg_stats,
     prefetch_osrm,
     reset_leg_stats,
@@ -32,7 +33,7 @@ from vrptw_4pass_solver import (
 
 # Лимит на полировку Guided Local Search. На 3 с выигрыш ~17% км, на 15 с ~20%,
 # дальше плато: 60 с добавляют ещё 0.1%.
-ORTOOLS_TIME_LIMIT_SEC = 15.0
+ORTOOLS_TIME_LIMIT_SEC = ORTOOLS_TIME_LIMIT_DEFAULT_SEC
 
 
 def evaluate_dataset(csv_path: str) -> None:

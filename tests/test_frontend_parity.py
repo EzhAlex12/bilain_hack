@@ -177,6 +177,25 @@ def test_traffic_default_matches_javascript():
     )
 
 
+def test_shift_and_solver_defaults_match_javascript():
+    """Смена бригад и лимит решателя настраиваются в интерфейсе, но умолчания
+    обязаны совпадать: иначе автономный режим в браузере и /api/upload посчитают
+    один и тот же файл на разных сменах."""
+    html = open(HTML, encoding="utf-8").read()
+
+    expected = {
+        "SHIFT_START_DEFAULT_MIN": solver.SHIFT_START_DEFAULT_MIN,
+        "SHIFT_END_DEFAULT_MIN": solver.SHIFT_END_DEFAULT_MIN,
+        "ORTOOLS_TIME_LIMIT_DEFAULT_SEC": solver.ORTOOLS_TIME_LIMIT_DEFAULT_SEC,
+    }
+    for name, py_value in expected.items():
+        m = re.search(r"const " + name + r" = ([\d.]+);", html)
+        assert m, f"в index.html нет {name}"
+        assert float(m.group(1)) == float(py_value), (
+            f"умолчание {name} разошлось: index.html={m.group(1)}, солвер={py_value}"
+        )
+
+
 def test_traffic_lon_scale_matches_javascript():
     """Масштаб долготы — литерал по обе стороны, сверяем побитово."""
     html = open(HTML, encoding="utf-8").read()
